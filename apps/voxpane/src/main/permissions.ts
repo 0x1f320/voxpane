@@ -2,6 +2,7 @@ import path from "node:path"
 import { app, BrowserWindow, ipcMain, screen, shell, systemPreferences } from "electron"
 import { APP_NAME } from "../shared/i18n"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
+import { logger, watchWindowLifecycle } from "./log"
 
 // The first-run gate: without Accessibility the helper cannot discover SynthV's
 // piano-roll canvas, so nothing else starts until it is granted.
@@ -27,6 +28,7 @@ let win: BrowserWindow | null = null
 let poll: NodeJS.Timeout | null = null
 let onGranted: (() => void) | null = null
 let reported = false
+const log = logger("permissions")
 
 export function isAccessibilityTrusted(): boolean {
   return process.platform !== "darwin" || systemPreferences.isTrustedAccessibilityClient(false)
@@ -85,6 +87,8 @@ export function openPermissionsWindow(granted: () => void): void {
     },
   })
 
+  watchWindowLifecycle(win, "permissions")
+
   // The overlay and toolbar float at "floating" level; the gate has to sit over
   // them for the case where it is re-shown after tracking already started.
   win.setAlwaysOnTop(true, "floating")
@@ -116,6 +120,7 @@ export function openPermissionsWindow(granted: () => void): void {
     }
     const trusted = isAccessibilityTrusted()
     if (trusted !== reported) {
+      log.info(`accessibility ${trusted ? "granted" : "revoked"}`)
       reported = trusted
       win.webContents.send("permissions:changed", status())
     }
@@ -154,6 +159,7 @@ export function registerPermissionsIpc(): void {
     }
     // Start before the window goes: closing the last window with no tray yet
     // would quit the app.
+    log.info("permissions gate passed")
     onGranted?.()
     onGranted = null
     win?.close()

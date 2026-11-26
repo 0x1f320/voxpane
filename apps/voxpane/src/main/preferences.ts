@@ -7,12 +7,14 @@ import {
   type Preferences,
   sanitizePreferences,
 } from "../shared/preferences"
+import { logger } from "./log"
 
 // Preferences live in a JSON file under userData, so they survive restarts.
 // The file is read once into memory; each update pushes the new state to every
 // window at once and rewrites the file shortly after.
 
 const FILE_NAME = "preferences.json"
+const log = logger("preferences")
 
 /**
  * How long a write may lag the value. Effect settings are live now — a slider
@@ -46,8 +48,13 @@ function load(): Preferences {
   let stored: unknown
   try {
     stored = JSON.parse(fs.readFileSync(filePath(), "utf8"))
-  } catch {
+  } catch (error) {
     // No file yet, or it is unreadable/corrupt — fall back to the defaults.
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      log.info("no stored preferences; using the defaults")
+    } else {
+      log.warn("failed to load preferences; using the defaults:", error)
+    }
   }
   cache = mergePreferences(DEFAULT_PREFERENCES, sanitizePreferences(stored))
   return cache
@@ -70,7 +77,7 @@ export function flushPreferences(): void {
     fs.writeFileSync(filePath(), `${JSON.stringify(cache, null, 2)}\n`)
   } catch (error) {
     // Keep the in-memory value; it just will not survive a restart.
-    console.error("failed to persist preferences:", error)
+    log.error("failed to persist preferences:", error)
   }
 }
 

@@ -5,6 +5,7 @@ import path from "node:path"
 import { app } from "electron"
 import { NATIVE_TARGET, native } from "../shared/native"
 import { BRIDGE_SCRIPT_FILE, scriptsDirectoryCandidates } from "../shared/synthvScript"
+import { logger } from "./log"
 import { resourcePath } from "./resources"
 
 // The app ships the bridge script it was built against and keeps SynthV's copy
@@ -16,6 +17,8 @@ import { resourcePath } from "./resources"
 // Rescan is separate: it also restarts the side-panel timer for an already
 // installed script, which is what reconnects Lua to a fresh app session after
 // the app restarts.
+
+const log = logger("bridge")
 
 function digest(file: string): string | null {
   try {
@@ -49,8 +52,12 @@ function scriptsDirectory(): string | null {
 }
 
 function rescanInstalledScript(): void {
-  if (native.rescanScripts?.(NATIVE_TARGET)) {
-    console.log("asked SynthV to rescan its scripts")
+  try {
+    if (native.rescanScripts?.(NATIVE_TARGET)) {
+      log.info("asked SynthV to rescan its scripts")
+    }
+  } catch (error) {
+    log.error("failed to ask SynthV to rescan its scripts:", error)
   }
 }
 
@@ -62,26 +69,27 @@ export function installBridgeScript(): void {
   const bundled = bundledScript()
   const source = digest(bundled)
   if (!source) {
-    console.error("the bridge script is missing from this build:", bundled)
+    log.error("the bridge script is missing from this build:", bundled)
     return
   }
 
   const directory = scriptsDirectory()
   if (!directory) {
-    console.warn("no Synthesizer V scripts directory found; the bridge script was not installed")
+    log.warn("no Synthesizer V scripts directory found; the bridge script was not installed")
     return
   }
 
   const target = path.join(directory, BRIDGE_SCRIPT_FILE)
   if (digest(target) === source) {
+    log.debug("the installed bridge script is current")
     rescanInstalledScript()
     return
   }
   try {
     fs.copyFileSync(bundled, target)
-    console.log("installed the SynthV bridge script:", target)
+    log.info("installed the SynthV bridge script:", target)
   } catch (error) {
-    console.error("failed to install the SynthV bridge script:", error)
+    log.error("failed to install the SynthV bridge script:", error)
     return
   }
 

@@ -15,6 +15,7 @@ import {
 } from "./bridgeShutdown"
 import { registerDipIpc, toDipFrame, updateDipTransform } from "./dip"
 import { initI18n } from "./i18n"
+import { initLogging, logger, registerLogIpc, watchWindowLifecycle } from "./log"
 import { createOverlayWindow, positionOverlay } from "./overlay"
 import { registerOverlayGeometryIpc } from "./overlayGeometry"
 import {
@@ -57,6 +58,11 @@ function syncOverlayBounds(win: BrowserWindow, frame: Rect): void {
   }, BOUNDS_SYNC_MS)
 }
 
+const appLog = logger("app")
+const bridgeLog = logger("bridge")
+const stickLog = logger("stick")
+const geometryLog = logger("geometry")
+
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
 let quitting = false
@@ -67,13 +73,21 @@ function requestBridgeReceiverStop(): Promise<boolean> {
   if (!win || win.isDestroyed() || win.webContents.isDestroyed()) {
     return Promise.resolve(false)
   }
+  bridgeLog.info("asking the bridge receiver to stop")
   return requestBridgeReceiverStopIpc(
     ipcMain,
     win.webContents,
     BRIDGE_SHUTDOWN_REQUEST,
     BRIDGE_SHUTDOWN_COMPLETE,
     BRIDGE_SHUTDOWN_TIMEOUT_MS,
-  )
+  ).then((stopped) => {
+    if (stopped) {
+      bridgeLog.info("bridge receiver stopped")
+    } else {
+      bridgeLog.warn("bridge receiver did not confirm its stop in time")
+    }
+    return stopped
+  })
 }
 
 function quiesceBridgeReceiverOwner(): Promise<void> {
@@ -87,7 +101,7 @@ function quiesceBridgeReceiverOwner(): Promise<void> {
   return quiesceBridgeReceiverOwnerProcess(
     win && !win.isDestroyed() ? win : null,
     () => native.unfollow?.(),
-    (error) => console.error("failed to detach the native overlay follower:", error),
+    (error) => stickLog.error("failed to detach the native overlay follower:", error),
   )
 }
 
@@ -96,6 +110,7 @@ const bridgeQuit = new BridgeQuitCoordinator({
   quiesceReceiverOwner: quiesceBridgeReceiverOwner,
   withdrawAdvertisement: () => {
     withdrawAdvertisedBridge(bridgeDirectory(), process.platform)
+    bridgeLog.info("withdrew the advertised bridge session")
   },
   resumeQuit: () => app.quit(),
   cleanup: () => {
@@ -103,7 +118,7 @@ const bridgeQuit = new BridgeQuitCoordinator({
     destroyTray()
   },
   reportFailure: (error) => {
-    console.error("bridge quit coordination failed:", error)
+    bridgeLog.error("bridge quit coordination failed:", error)
   },
   timeoutMs: BRIDGE_SHUTDOWN_TIMEOUT_MS,
 })
@@ -126,6 +141,9 @@ if (!app.requestSingleInstanceLock()) {
   app.exit(0)
 }
 
+// After the lock, so a losing second copy never writes into the winner's log.
+initLogging()
+
 // Windows attributes tray icons and toast notifications by AppUserModelID, and
 // falls back to "electron.app.Electron" without one. It has to match the ID the
 // installer writes into the shortcut, or shipped toasts go missing.
@@ -138,6 +156,7 @@ registerAssetScheme()
 // so a relaunch has nothing to raise — show settings as the visible ack instead,
 // or the gate the first copy is still waiting on.
 app.on("second-instance", () => {
+  appLog.info("a second instance was launched")
   if (quitting) return
   if (started) {
     openSettingsWindow()
@@ -157,6 +176,7 @@ function start(): void {
     // The gate came back up mid-run — the grant was revoked and restored — so
     // the windows are already there and only the observer has to be rebuilt: it
     // chose poll mode when it started untrusted.
+    stickLog.info("restarting the stick observer after the permissions gate")
     native.stop()
     startTracking()
     return
@@ -164,14 +184,20 @@ function start(): void {
   started = true
 
   overlayWin = createOverlayWindow()
+  watchWindowLifecycle(overlayWin, "overlay")
   toolbarWin = createToolbarWindow()
+  watchWindowLifecycle(toolbarWin, "toolbar")
   setSettingsAnchorWindow(toolbarWin)
   if (process.platform !== "darwin" && process.platform !== "win32") {
     return
   }
   createTray()
   if (native.follow && overlayWin) {
-    native.follow(overlayWin.getNativeWindowHandle())
+    try {
+      native.follow(overlayWin.getNativeWindowHandle())
+    } catch (error) {
+      stickLog.error("failed to hand the overlay to the native follower:", error)
+    }
   }
   startTracking()
 
@@ -180,8 +206,9 @@ function start(): void {
   // no channels and draws nothing.
   try {
     prepareBridgeDirectory()
+    bridgeLog.info("prepared the bridge directory")
   } catch (error) {
-    console.error("failed to prepare the SynthV bridge directory:", error)
+    bridgeLog.error("failed to prepare the SynthV bridge directory:", error)
   }
 }
 
@@ -201,8 +228,19 @@ function syncToolbar(): void {
   }
 }
 
+let lastStatus: string | null = null
+
 function startTracking(): void {
   if (quitting) return
+  lastStatus = null
+  try {
+    observeTarget()
+  } catch (error) {
+    stickLog.error("failed to start the native stick observer:", error)
+  }
+}
+
+function observeTarget(): void {
   native.start({
     target: NATIVE_TARGET,
     onFrame: (raw) => {
@@ -228,6 +266,11 @@ function startTracking(): void {
     },
     onStatus: (s) => {
       if (quitting) return
+      const described = s.mode ? `${s.state} (${s.mode})` : s.state
+      if (described !== lastStatus) {
+        stickLog.info(`status: ${lastStatus ?? "none"} -> ${described}`)
+        lastStatus = described
+      }
       setTrayStatus(s.state)
       // Trust was revoked while running: nothing can be read any more, so ask
       // for it back rather than leaving an overlay that silently never draws.
@@ -254,6 +297,8 @@ app.whenReady().then(() => {
   if (process.platform === "darwin" && app.dock) {
     app.dock.hide()
   }
+  appLog.info("ready")
+  registerLogIpc()
   registerPreferencesIpc()
   // After the preferences IPC, whose store it reads the language from, and
   // before anything that spells a user-facing string.
@@ -261,7 +306,15 @@ app.whenReady().then(() => {
   // After i18n: the import dialog spells its file-type filter.
   registerAssetIpc()
   registerDipIpc()
-  registerOverlayGeometryIpc()
+  registerOverlayGeometryIpc(ipcMain, native, NATIVE_TARGET, (outcome, error) => {
+    if (outcome === "failed") {
+      geometryLog.warn("the Accessibility canvas read failed:", error)
+    } else if (outcome === "missing") {
+      geometryLog.info("the Accessibility canvas is not available")
+    } else {
+      geometryLog.info("found the Accessibility canvas")
+    }
+  })
   registerPermissionsIpc()
   registerToolbarIpc(syncToolbar)
   ipcMain.handle("settings:open", () => openSettingsWindow())
@@ -269,7 +322,7 @@ app.whenReady().then(() => {
   ipcMain.handle("app:quit", () => app.quit())
   ipcMain.on("debug:latency", (_event, line: unknown) => {
     if (typeof line === "string" && line.startsWith("[voxpane latency]")) {
-      console.info(line)
+      logger("latency").info(line)
     }
   })
 
@@ -286,6 +339,9 @@ app.whenReady().then(() => {
 })
 
 app.on("before-quit", (event) => {
+  if (!quitting) {
+    appLog.info("quitting")
+  }
   quitting = true
   bridgeQuit.beforeQuit(event)
 })

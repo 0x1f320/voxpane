@@ -1,4 +1,5 @@
 import { ipcMain } from "electron"
+import { type CanvasReadReporter, reportCanvasReadChanges } from "../shared/canvasRead"
 import type { CanvasSnapshot } from "../shared/geometry"
 import { NATIVE_TARGET, type NativeHelper, native, toDipCanvasSnapshot } from "../shared/native"
 import { getDipTransform } from "./dip"
@@ -47,7 +48,8 @@ export function registerOverlayGeometryIpc(
   ipc: OverlayGeometryIpc = ipcMain,
   helper: Partial<NativeHelper> = native,
   target = NATIVE_TARGET,
+  report: CanvasReadReporter = () => {},
 ): void {
-  const readCanvas = createOverlayCanvasReader(helper, target)
+  const readCanvas = reportCanvasReadChanges(createOverlayCanvasReader(helper, target), report)
   ipc.handle("overlay:getCanvas", () => readCanvas())
 }

@@ -13,9 +13,36 @@ pnpm install
 pnpm dev
 ```
 
-The main process writes to the terminal; overlay DevTools carries renderer output. Lua has
-no externally readable log, so its side panel and the non-consuming inspector are the
-operational sources of truth.
+The main process writes to the terminal and to the [app log](#app-log); overlay DevTools
+carries renderer output. Lua has no externally readable log, so its side panel and the
+non-consuming inspector are the operational sources of truth.
+
+## App log
+
+Main, preload and renderer all write one file through `electron-log`, owned by main:
+`<userData>/logs/main.log`, where `userData` is `~/Library/Application Support/@voxpane/app`
+on macOS and `%APPDATA%\@voxpane\app` on Windows. The tray's **Open log folder** reveals it,
+and it is the file to attach to a bug report.
+
+- **Level** is `debug` in development and `info` in a packaged build. `VOXPANE_LOG_LEVEL`
+  (`error` … `silly`) overrides either at launch.
+- **Rotation**: at 1 MiB the file moves to `main.1.log`, shifting older archives up to
+  `main.3.log`, so the folder never holds more than about 4 MiB.
+- **Scopes** name the source: `app`, `window`, `stick`, `geometry`, `bridge`, `preferences`,
+  `permissions`, `event` (Electron's own failures: child-process crashes, failed loads,
+  preload errors), `process` (uncaught exceptions, observed only), and `renderer` for
+  anything sent from a preload or renderer.
+- **Redaction** runs on every message before any transport: the home directory becomes `~`
+  and any other `/Users/<name>`, `/home/<name>` or `X:\Users\<name>` segment is masked.
+- **What is recorded**: stick status transitions, Accessibility/UI Automation canvas reads
+  changing between found, missing and failed, bridge directory and script installation,
+  receiver start/stop, transport status changes and malformed-frame, endpoint-failure,
+  recovery and disconnect counter increases, preferences load/save failures, addon load
+  failures, and window creation, show/hide, close, unresponsiveness and renderer loss.
+
+Preload and renderer lines reach the file by an IPC send to main. That is why nothing in the
+[per-frame path](overlay.md#the-hot-path) logs: the canvas read reports only a change of
+outcome, transport lines come from lifecycle messages, and frame records never log.
 
 ## App and overlay
 
@@ -125,6 +152,7 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 | Stale app state after a crash | `dump` prints `stale`; inspect the side panel after restarting the app |
 | SynthV stops after an app crash | verify the session guardian existed before the kill and that `pipe-session` becomes unavailable |
 | Overlay never draws | tray attachment, side-panel connection/error, then debug rectangles |
+| A user reports a problem you cannot reproduce | their `main.log` from **Open log folder**: `stick`, `geometry` and `bridge` lines |
 | Pipe recovers repeatedly | diagnostic recoveries, malformed frames, endpoint failures, and disconnects |
 | New state is ignored | diagnostic invalid, `scrollSeq`, `notesSeq`, or `rev` mismatch observations |
 | Effects drift while scrolling | debug rectangles and the generation candidate matcher in [architecture.md](architecture.md#geometry-path) |

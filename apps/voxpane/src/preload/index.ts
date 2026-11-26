@@ -4,8 +4,15 @@ import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
   BridgeReceiptDiagnostics,
+  BridgeTransportDiagnostics,
 } from "../shared/bridgeDiagnostics"
 import { BRIDGE_SHUTDOWN_COMPLETE, BRIDGE_SHUTDOWN_REQUEST } from "../shared/bridgeShutdownIpc"
+import { type CanvasReadOutcome, reportCanvasReadChanges } from "../shared/canvasRead"
+import {
+  LOG_OPEN_FOLDER_CHANNEL,
+  LOG_WRITE_CHANNEL,
+  type RendererLogLevel,
+} from "../shared/logging"
 import {
   type CanvasSnapshot,
   type DipTransform,
@@ -21,11 +28,13 @@ import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
 import { BridgeRuntime } from "./bridgeRuntime"
+import { describeTransportChange } from "./bridgeTransportLog"
 import type { BridgeWorkerCommand, BridgeWorkerMessage } from "./bridgeWorkerProtocol"
 import { createPreloadShutdownHandler, PreloadBridgeStopController } from "./bridgeWorkerShutdown"
 
 interface BrowserWorker {
   onmessage: ((event: { data: BridgeWorkerMessage }) => void) | null
+  onerror: ((event: { message?: string }) => void) | null
   postMessage(message: BridgeWorkerCommand): void
 }
 
@@ -33,7 +42,23 @@ interface BrowserWorkerConstructor {
   new (scriptUrl: string): BrowserWorker
 }
 
+function serializableLogItem(item: unknown): unknown {
+  if (item instanceof Error) {
+    return item.stack ?? `${item.name}: ${item.message}`
+  }
+  return item
+}
+
+// Fire-and-forget to main, which owns the log file. Never call this from the
+// per-frame path: it is an IPC hop.
+function writeLog(level: RendererLogLevel, scope: string, ...data: unknown[]): void {
+  try {
+    ipcRenderer.send(LOG_WRITE_CHANNEL, level, scope, data.map(serializableLogItem))
+  } catch {}
+}
+
 let bridgeRuntime: BridgeRuntime | null = null
+let lastTransport: BridgeTransportDiagnostics | null = null
 let bridgeWorker: BrowserWorker | null = null
 let bridgeShuttingDown = false
 const bridgeStopController = new PreloadBridgeStopController()
@@ -53,6 +78,10 @@ function cachedBridge(): BridgeRuntime {
   )
   const Worker = (globalThis as unknown as { Worker: BrowserWorkerConstructor }).Worker
   const worker = new Worker(workerUrl)
+  writeLog("info", "bridge", "bridge worker started")
+  worker.onerror = (event) => {
+    writeLog("error", "bridge", "bridge worker error:", event.message ?? "unknown")
+  }
   worker.onmessage = ({ data }) => {
     bridgeStopController.accept(data)
     if (data.type === "shutdown-complete") {
@@ -67,14 +96,19 @@ function cachedBridge(): BridgeRuntime {
     } else if (data.type === "schedule") {
       runtime.acceptSchedule(new Uint8Array(data.bytes), acceptDiagnostics(data.diagnostics))
     } else if (data.type === "transport") {
-      runtime.acceptTransportDiagnostics({
+      const transport: BridgeTransportDiagnostics = {
         status: data.status,
         session: data.session,
         recoveries: data.recoveries,
         malformedFrames: data.malformedFrames,
         endpointFailures: data.endpointFailures,
         disconnects: data.disconnects,
-      })
+      }
+      for (const entry of describeTransportChange(lastTransport, transport)) {
+        writeLog(entry.level, "bridge", entry.message)
+      }
+      lastTransport = transport
+      runtime.acceptTransportDiagnostics(transport)
     }
   }
   bridgeWorker = worker
@@ -88,6 +122,7 @@ const handleBridgeShutdown = createPreloadShutdownHandler({
 })
 
 ipcRenderer.on(BRIDGE_SHUTDOWN_REQUEST, () => {
+  writeLog("info", "bridge", "bridge shutdown requested")
   bridgeShuttingDown = true
   handleBridgeShutdown()
 })
@@ -127,16 +162,24 @@ function windowsCanvas(state: BridgeState): Rect | null {
   return native.getCanvas?.(expectedCanvasSize(state), NATIVE_TARGET) ?? null
 }
 
-async function nativeCanvasAsync() {
-  const state = isWindows ? cachedBridge().readState() : null
-  const canvas = isWindows ? state && windowsCanvas(state) : null
-  if (!canvas) {
-    return isWindows ? null : ipcRenderer.invoke("overlay:getCanvas")
+function reportUiaCanvas(outcome: CanvasReadOutcome, error?: unknown): void {
+  if (outcome === "failed") {
+    writeLog("warn", "geometry", "the UI Automation canvas read failed:", error)
+  } else if (outcome === "missing") {
+    writeLog("info", "geometry", "the UI Automation canvas is not available")
+  } else {
+    writeLog("info", "geometry", "found the UI Automation canvas")
   }
-  return {
-    canvas,
-    origin: isWindows ? native.getCanvasOrigin?.() : { x: 0, y: 0 },
-  }
+}
+
+const readWindowsCanvas = reportCanvasReadChanges(async () => {
+  const state = cachedBridge().readState()
+  const canvas = state && windowsCanvas(state)
+  return canvas ? { canvas, origin: native.getCanvasOrigin?.() } : null
+}, reportUiaCanvas)
+
+function nativeCanvasAsync(): Promise<CanvasSnapshot | null> {
+  return isWindows ? readWindowsCanvas() : ipcRenderer.invoke("overlay:getCanvas")
 }
 
 contextBridge.exposeInMainWorld("overlay", {
@@ -180,6 +223,13 @@ contextBridge.exposeInMainWorld("panel", {
 
 contextBridge.exposeInMainWorld("app", {
   quit: (): Promise<void> => ipcRenderer.invoke("app:quit"),
+})
+
+contextBridge.exposeInMainWorld("logger", {
+  error: (scope: string, ...data: unknown[]): void => writeLog("error", scope, ...data),
+  warn: (scope: string, ...data: unknown[]): void => writeLog("warn", scope, ...data),
+  info: (scope: string, ...data: unknown[]): void => writeLog("info", scope, ...data),
+  openFolder: (): Promise<void> => ipcRenderer.invoke(LOG_OPEN_FOLDER_CHANNEL),
 })
 
 contextBridge.exposeInMainWorld("debug", {
