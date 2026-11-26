@@ -186,6 +186,18 @@ describe("Transport.playhead", () => {
     expect(transport.view).toBeNull()
   })
 
+  it("does not pick a record back up once the script has gone quiet on it", () => {
+    const { transport, tick, idle } = harness()
+    tick({ at: 2 }, 1000)
+    idle(1600)
+    idle(1616)
+    expect(transport.playing).toBe(false)
+    expect(transport.playhead(1616)).toBeNull()
+    expect(transport.view).toBeNull()
+    idle(2200)
+    expect(transport.playing).toBe(false)
+  })
+
   it("picks up again after the script comes back", () => {
     const { transport, tick, idle } = harness()
     tick({ at: 2 }, 1000)

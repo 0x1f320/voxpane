@@ -228,7 +228,6 @@ export class Transport {
     this.anchored = false
     this.viewportState = null
     this.viewState = null
-    this.lastSeq = -1
   }
 
   private adoptViewport(state: BridgeState, viewport: CanvasSnapshot): void {
