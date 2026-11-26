@@ -7,11 +7,26 @@ import {
   encodeState,
   LAYOUT,
   type NoteRecord,
+  type StateRecord,
 } from "./codec"
 import { bridgeDirectory } from "./paths"
 import { createPipeClient } from "./pipe"
 
 const PROTOCOL = 1
+
+/**
+ * The longest the state channel stays quiet while the transport is stopped and
+ * nothing it reports has changed, in nominal milliseconds.
+ *
+ * The app reads a state `seq` that has stood still for 500 ms (`SILENCE_MS` in
+ * the renderer's transport.ts) as the script being gone, and drops its view of
+ * the roll, which also cuts off effects still finishing after a stop. Nominal
+ * matters: elapsed time here is a tick count, the host has no sub-second wall
+ * clock to check it against, and a busy editor runs its ticks late. A tenth of
+ * the app's limit keeps the script alive in the app's eyes even with ticks
+ * running ten times slower than asked for.
+ */
+const STATE_KEEPALIVE_MS = 48
 
 export interface StateValue {
   at: number
@@ -63,6 +78,8 @@ export function createPublisher(): Publisher {
   let notesSeq = 0
   let scrollSeq = 0
   let lastScroll: ScrollValue | null = null
+  let lastState: StateRecord | null = null
+  let lastStateElapsedMs = 0
   let lastError = "none"
   let lastElapsedMs = 0
 
@@ -71,6 +88,7 @@ export function createPublisher(): Publisher {
     notesSeq = 0
     scrollSeq = 0
     lastScroll = null
+    lastState = null
   }
 
   function deactivate(message: string): void {
@@ -136,25 +154,36 @@ export function createPublisher(): Publisher {
         lastScroll = nextScroll
       }
 
-      const nextSeq = seq + 1
+      const record: StateRecord = {
+        seq: seq + 1,
+        notesSeq,
+        scrollSeq,
+        at: value.at,
+        status: value.status,
+        loop: value.loop,
+        rev: value.rev,
+      }
+      // A stopped transport that reports nothing new is not worth a pack and a
+      // synchronous write on the editor's UI thread 250 times a second, nor a
+      // wake-up of the app for each one. Playback is never thinned: the app pins
+      // its playhead to the newest record at the moment it reads it, so the
+      // record has to be at most a tick old, and a playhead standing still
+      // under a playing status must keep being re-pinned where it stands.
       if (
-        !client.write(
-          "state",
-          encodeState({
-            seq: nextSeq,
-            notesSeq,
-            scrollSeq,
-            at: value.at,
-            status: value.status,
-            loop: value.loop,
-            rev: value.rev,
-          }),
-        )
+        lastState !== null &&
+        record.status === "stopped" &&
+        sameReport(lastState, record) &&
+        lastElapsedMs - lastStateElapsedMs < STATE_KEEPALIVE_MS
       ) {
+        return
+      }
+      if (!client.write("state", encodeState(record))) {
         deactivate("state write failed")
         return
       }
-      seq = nextSeq
+      seq = record.seq
+      lastState = record
+      lastStateElapsedMs = lastElapsedMs
     },
 
     publishNotes(rev, notes) {
@@ -212,6 +241,25 @@ function sameScroll(left: ScrollValue, right: ScrollValue): boolean {
     left.viewTop === right.viewTop &&
     left.viewBottom === right.viewBottom
   )
+}
+
+/** Everything a state record says apart from its own sequence number. */
+function sameReport(left: StateRecord, right: StateRecord): boolean {
+  return (
+    left.at === right.at &&
+    left.status === right.status &&
+    left.rev === right.rev &&
+    left.notesSeq === right.notesSeq &&
+    left.scrollSeq === right.scrollSeq &&
+    sameLoop(left.loop, right.loop)
+  )
+}
+
+function sameLoop(left: StateRecord["loop"], right: StateRecord["loop"]): boolean {
+  if (left === null || right === null) {
+    return left === right
+  }
+  return left.start === right.start && left.end === right.end
 }
 
 function unavailable(reason: string): Publisher {

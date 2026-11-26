@@ -59,8 +59,10 @@ count, inferred loop bounds, and last error. `rendezvous unavailable` means the 
 advertised endpoints; an endpoint open/write failure or `EPIPE` means Lua closed the set and
 will wait for a different app session or a newer heartbeat before retrying. A first connection
 also waits for the same session's heartbeat to advance, so `disconnected` can remain visible
-until a later 240 ms validation observes the next heartbeat second. A non-advancing sequence
-with a connected app points to a stopped Lua tick or its displayed last error.
+until a later 240 ms validation observes the next heartbeat second. The state sequence
+advances on every tick of playback and, while the transport is stopped, only on a change or
+a 48 ms keepalive — slow is normal there. One that does not advance at all with a connected
+app points to a stopped Lua tick or its displayed last error.
 
 Use **Resend schedule** to request a full schedule deliberately. On a clean client reconnect
 the script also sends an exact notes/scroll/state snapshot automatically.
@@ -120,6 +122,12 @@ disconnects, and invalid/sequence/revision mismatch observations.
 The timing graph compares accepted state and viewport application against drawing. A gap
 means no accepted sample, not a zero-duration read. Renderer latency reports appear in
 overlay DevTools; development forwards them to the main terminal.
+
+While the transport is stopped the state channel carries only changes and a keepalive
+([synthv.md](synthv.md#publication)), so the state row's applied age climbs to about 48 ms
+between records and its series draws a sawtooth. That is the publication cadence, not
+latency. State age only measures the transport during playback; scroll latency is the scroll
+series either way.
 
 Debug mode changes what it observes: it keeps the overlay's frame loop running for as long as
 the window is shown. Without it, an overlay with nothing to draw produces **no frames at

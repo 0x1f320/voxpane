@@ -9,12 +9,12 @@ import { pianoRollFrom, viewportFrom } from "../../../shared/pianoRollGeometry"
 
 // Turns the bridge's state channel into a continuous playhead.
 //
-// The script publishes state on every tick and a worker keeps the latest record
-// in memory, so this no longer waits to be told about seeks, wraps and stops —
-// it sees them. What it still does is interpolate: the script's tick and this
-// frame loop beat against each other, so between two fresh records the playhead
-// runs on the local clock. That is sound because both clocks are on this machine
-// and every read re-anchors.
+// The script publishes state on every tick of playback and a worker keeps the
+// latest record in memory, so this no longer waits to be told about seeks, wraps
+// and stops — it sees them. What it still does is interpolate: the script's tick
+// and this frame loop beat against each other, so between two fresh records the
+// playhead runs on the local clock. That is sound because both clocks are on
+// this machine and every read re-anchors.
 //
 // Timing is read from the channel alone. Geometry also needs the same record's
 // view mapping, plus the latest native canvas anchor, to make a live viewport:
@@ -33,9 +33,10 @@ export interface TransportView {
 
 /**
  * How long the state channel may stand still before the script counts as gone.
- * It publishes every 4ms, so this is generous
- * enough to survive a stalled editor and short enough that a closed SynthV stops
- * driving effects almost immediately.
+ * It publishes every 4ms during playback and at least every 48ms while stopped
+ * (`STATE_KEEPALIVE_MS` in the script's publisher, which is sized against this),
+ * so this is generous enough to survive a stalled editor and short enough that a
+ * closed SynthV stops driving effects almost immediately.
  */
 const SILENCE_MS = 500
 

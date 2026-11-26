@@ -6,6 +6,7 @@ const runtime = vi.hoisted(() => ({
   collectFailures: 0,
   prepareResults: [] as Array<"new-session" | "connected" | "disconnected">,
   scheduled: undefined as (() => void) | undefined,
+  status: "playing",
 }))
 
 vi.mock("./bridge/model", () => ({
@@ -81,13 +82,14 @@ beforeEach(() => {
   runtime.collectFailures = 0
   runtime.prepareResults = []
   runtime.scheduled = undefined
+  runtime.status = "playing"
   Object.assign(globalThis, {
     tostring: (value: unknown) => String(value),
     string: { format: () => "0" },
     SV: {
       create: widget,
       getPlayback: () => ({
-        getStatus: () => "playing",
+        getStatus: () => runtime.status,
         getPlayhead: () => 1,
       }),
       refreshSidePanel: () => {},
@@ -196,5 +198,18 @@ describe("OverlayBridge", () => {
     }
 
     expect(runtime.calls.filter((call) => call.startsWith("prepare:")).at(-1)).toBe("prepare:240")
+  })
+
+  it("samples the view and offers the publisher a state on every tick while stopped", async () => {
+    runtime.status = "stopped"
+    await import("./overlay-bridge")
+    runtime.calls = []
+
+    for (let tick = 0; tick < 10; tick += 1) {
+      runtime.scheduled?.()
+    }
+
+    expect(runtime.calls.filter((call) => call === "view")).toHaveLength(10)
+    expect(runtime.calls.filter((call) => call.startsWith("state:"))).toHaveLength(10)
   })
 })

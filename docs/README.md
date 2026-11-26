@@ -59,6 +59,7 @@ technique has **one home**; everything else links to it.
 | Pipe-session rendezvous and app-owned endpoints | [bridge](bridge.md#the-paths) | Lua connection and app lifecycle |
 | Daemonized FIFO guardian | [bridge](bridge.md#endpoint-ownership) | macOS crash isolation and writer drain |
 | Session gate and generation matching | [bridge](bridge.md#session-gate-and-recovery) | recovery snapshots and latest valid state |
+| State keepalive and liveness | [bridge](bridge.md#liveness) | the Lua publisher, the transport's silence check |
 | Bounded framed parser | [bridge](bridge.md#frame-boundaries) | pipe receipt before `BridgeRuntime` decoding |
 | Playhead interpolation on the local clock | [architecture](architecture.md#the-frame-loop) | the transport, all effect timing |
 | Predict-and-snap, follow, anchor | [geometry](geometry.md#matching-a-note-to-a-rectangle) | note matching, debug reach bands |

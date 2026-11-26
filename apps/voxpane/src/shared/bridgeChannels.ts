@@ -40,7 +40,10 @@ export interface BridgeViewMapping {
 }
 
 export interface BridgeStateRecord {
-  /** Advances every tick; stops advancing when the script is gone. */
+  /**
+   * Advances with every record: each script tick during playback, and on a
+   * change or a keepalive while stopped. Stops advancing when the script is gone.
+   */
   seq: number
   /** Generation of the notes channel. */
   notesSeq: number
