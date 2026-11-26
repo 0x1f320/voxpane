@@ -1,3 +1,9 @@
+## [1.0.0-dev.11](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.10...v1.0.0-dev.11) (2026-11-26)
+
+### ✨ Features
+
+* **native:** remove the SynthV LUFS meter ([#109](https://github.com/0x1f320/voxpane/issues/109)) ([e231f20](https://github.com/0x1f320/voxpane/commit/e231f20ef2c6eb5c2bcc8af4da379b9f4311b2bd)), closes [#103](https://github.com/0x1f320/voxpane/issues/103)
+
 ## [1.0.0-dev.10](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.9...v1.0.0-dev.10) (2026-08-10)
 
 ### ✨ Features
