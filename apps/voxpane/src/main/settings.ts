@@ -1,6 +1,7 @@
 import path from "node:path"
 import { app, BrowserWindow, screen } from "electron"
 import { onLanguageChanged, t } from "./i18n"
+import { watchWindowLifecycle } from "./log"
 
 // The settings window, opened from the toolbar. It is a singleton — reopening
 // focuses the existing one instead of stacking.
@@ -63,6 +64,8 @@ export function openSettingsWindow(): void {
       sandbox: false,
     },
   })
+
+  watchWindowLifecycle(win, "settings")
 
   // The overlay and toolbar float at "floating" level; a normal-level settings
   // window would be drawn under them wherever it overlaps SynthV.

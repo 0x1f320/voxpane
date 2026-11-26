@@ -15,6 +15,7 @@
     },
     "effects": "ノートエフェクトを有効にする",
     "settings": "設定…",
+    "openLogs": "ログフォルダを開く",
     "quit": "{{app}} を終了",
     "notRunning": {
       "title": "{{synthv}} が起動していません",

@@ -13,8 +13,33 @@ pnpm install
 pnpm dev
 ```
 
-main process는 terminal에, overlay DevTools는 renderer output에 쓴다. Lua에는 외부에서 읽을 수 있는 log가
-없으므로 side panel과 non-consuming inspector가 운영상 source of truth다.
+main process는 terminal과 [app log](#app-log)에, overlay DevTools는 renderer output에 쓴다. Lua에는
+외부에서 읽을 수 있는 log가 없으므로 side panel과 non-consuming inspector가 운영상 source of truth다.
+
+## App log
+
+main, preload, renderer 모두 main이 소유한 `electron-log`를 통해 하나의 파일에 쓴다:
+`<userData>/logs/main.log`. `userData`는 macOS에서 `~/Library/Application Support/@voxpane/app`,
+Windows에서 `%APPDATA%\@voxpane\app`이다. tray의 **Open log folder**(로그 폴더 열기)가 이 폴더를 열며,
+bug report에 첨부할 파일이 이것이다.
+
+- **Level**은 development에서 `debug`, packaged build에서 `info`다. 실행 시 `VOXPANE_LOG_LEVEL`
+  (`error` … `silly`)로 덮어쓸 수 있다.
+- **Rotation**: 1 MiB가 되면 파일이 `main.1.log`로 옮겨지고 이전 archive는 `main.3.log`까지 한 칸씩
+  밀린다. 폴더는 대략 4 MiB를 넘지 않는다.
+- **Scope**가 출처를 나타낸다: `app`, `window`, `stick`, `geometry`, `bridge`, `preferences`,
+  `permissions`, `event`(Electron 자체 실패: child-process crash, load 실패, preload error),
+  `process`(uncaught exception, 관찰만 함), 그리고 preload나 renderer에서 보낸 것은 `renderer`.
+- **Redaction**은 모든 transport 이전에 모든 message에 적용된다: home directory는 `~`가 되고, 그 밖의
+  `/Users/<name>`, `/home/<name>`, `X:\Users\<name>` segment는 가려진다.
+- **기록되는 것**: stick status 전환, Accessibility/UI Automation canvas read가 found, missing, failed
+  사이에서 바뀌는 것, bridge directory와 script 설치, receiver start/stop, transport status 변화와
+  malformed-frame, endpoint-failure, recovery, disconnect counter 증가, preferences load/save 실패,
+  addon load 실패, 그리고 window 생성, show/hide, close, unresponsive, renderer 소실.
+
+preload와 renderer의 line은 main으로의 IPC send로 파일에 도달한다. 그래서
+[per-frame path](overlay.md#the-hot-path)에서는 아무것도 log를 남기지 않는다: canvas read는 outcome이
+바뀔 때만 보고하고, transport line은 lifecycle message에서 나오며, frame record는 절대 log하지 않는다.
 
 ## App and overlay
 
@@ -118,6 +143,7 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 | crash 뒤 stale app state | `dump`의 `stale`; app restart 후 side panel 확인 |
 | app crash 뒤 SynthV가 멈춤 | kill 전에 session guardian이 있었고 뒤에 `pipe-session`이 unavailable이 되는지 확인 |
 | overlay가 전혀 안 그림 | tray attachment, side-panel connection/error, debug rect 순서로 확인 |
+| 재현할 수 없는 문제를 사용자가 보고함 | **Open log folder**로 받은 `main.log`의 `stick`, `geometry`, `bridge` line |
 | pipe가 반복 recover | diagnostic recovery, malformed frame, endpoint failure, disconnect 확인 |
 | new state가 무시됨 | diagnostic invalid, `scrollSeq`, `notesSeq`, `rev` mismatch observation 확인 |
 | scroll 때 effect가 밀림 | debug rect와 [architecture.md](architecture.md#geometry-path)의 generation candidate matcher 확인 |

@@ -1,6 +1,7 @@
 import { app, Menu, type NativeImage, Notification, nativeImage, nativeTheme, Tray } from "electron"
 import { APP_NAME } from "../shared/i18n"
 import { onLanguageChanged, t } from "./i18n"
+import { openLogFolder } from "./log"
 import { getPreferences, onPreferencesChanged, updatePreferences } from "./preferences"
 import { resourcePath } from "./resources"
 import { openSettingsWindow } from "./settings"
@@ -75,6 +76,7 @@ function rebuildMenu(): void {
         click: (item) => updatePreferences({ effects: item.checked }),
       },
       { label: t("tray.settings"), click: () => openSettingsWindow() },
+      { label: t("tray.openLogs"), click: () => void openLogFolder() },
       { type: "separator" },
       { label: t("tray.quit"), click: () => app.quit() },
     ]),

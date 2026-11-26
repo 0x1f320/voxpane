@@ -38,6 +38,14 @@ declare global {
       /** Quit the whole app — the toolbar, the overlay and the tray go with it. */
       quit(): Promise<void>
     }
+    logger: {
+      /** Append to the app log, under `scope`. Not for the per-frame path: each call is an IPC send. */
+      error(scope: string, ...data: unknown[]): void
+      warn(scope: string, ...data: unknown[]): void
+      info(scope: string, ...data: unknown[]): void
+      /** Reveal the log folder in the file manager. */
+      openFolder(): Promise<void>
+    }
     debug: {
       /** Report a debug-only latency summary outside the renderer console. */
       latency(line: string): void

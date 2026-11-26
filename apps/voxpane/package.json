@@ -16,6 +16,7 @@
   "dependencies": {
     "@voxpane/macos-helper": "workspace:*",
     "@voxpane/windows-helper": "workspace:*",
+    "electron-log": "^5.4.4",
     "i18next": "^26.3.6"
   },
   "devDependencies": {

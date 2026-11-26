@@ -15,6 +15,7 @@
     },
     "effects": "Enable note effects",
     "settings": "Settings…",
+    "openLogs": "Open log folder",
     "quit": "Quit {{app}}",
     "notRunning": {
       "title": "{{synthv}} is not running",

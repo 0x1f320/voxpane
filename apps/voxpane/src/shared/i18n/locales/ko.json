@@ -15,6 +15,7 @@
     },
     "effects": "노트 이펙트 활성화",
     "settings": "설정…",
+    "openLogs": "로그 폴더 열기",
     "quit": "{{app}} 종료",
     "notRunning": {
       "title": "{{synthv}}가 실행되고 있지 않습니다",

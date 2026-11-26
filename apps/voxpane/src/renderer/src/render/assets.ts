@@ -32,7 +32,7 @@ export function assetTexture(name: string | null): Texture | null {
         loaded.set(name, result)
       })
       .catch((error) => {
-        console.error(`failed to load the effect image ${name}:`, error)
+        window.logger.error("effects", `failed to load the effect image ${name}:`, error)
       })
   }
   return null
