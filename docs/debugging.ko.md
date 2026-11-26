@@ -127,7 +127,10 @@ deploy한다. local `deploy`는 smoke script도 복사하므로 real bridge를 �
 
 ## Windows
 
-native Windows checkout 또는 Parallels VM에는 repository의 `run-on-windows` skill을 쓴다. Windows는 Node
+native Windows checkout에는, 그리고 macOS에서는 skill이 고르게 하는 두 target — Parallels Desktop Windows
+VM, 또는 SSH로 접속하는 별도의 Windows 머신 — 모두에 repository의 `run-on-windows` skill을 쓴다. SSH에서는
+app을 로그인한 user의 desktop session 안에서 시작해야 한다(skill은 `schtasks /it` task로 이를 처리한다). SSH
+session은 interactive하지 않아서, 거기서 연 Electron window는 아무에게도 보이지 않기 때문이다. Windows는 Node
 Named Pipe server를 쓴다. 제거된 PowerShell helper를 되살리거나 two-second startup delay를 가정하지 않는다.
 macOS에서는 다음으로 Windows helper code를 typecheck한다.
 

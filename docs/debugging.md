@@ -136,9 +136,13 @@ publishers otherwise contend for the same app-owned endpoints.
 
 ## Windows
 
-Use the repository's `run-on-windows` skill for a native Windows checkout or the Parallels
-VM. Windows uses Node Named Pipe servers. Do not revive the removed PowerShell helper or
-assume a two-second startup delay. From macOS, typecheck Windows helper code with:
+Use the repository's `run-on-windows` skill for a native Windows checkout or, from macOS,
+for either of two targets it asks you to choose between: a Parallels Desktop Windows VM, or a
+separate Windows machine reached over SSH. Over SSH the app has to be started inside the
+logged-in user's desktop session (the skill does it through a `schtasks /it` task), because an
+SSH session is not interactive and an Electron window opened from it is never seen. Windows
+uses Node Named Pipe servers. Do not revive the removed PowerShell helper or assume a
+two-second startup delay. From macOS, typecheck Windows helper code with:
 
 ```sh
 cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
