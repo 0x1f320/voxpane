@@ -68,20 +68,17 @@ describe("mergePreferences", () => {
       ...DEFAULT_PREFERENCES,
       debug: true,
       effects: true,
-      audioMeter: true,
       ignoreSilenceLyrics: true,
     }
     expect(
       mergePreferences(base, {
         debug: false,
         effects: false,
-        audioMeter: false,
         ignoreSilenceLyrics: false,
       }),
     ).toMatchObject({
       debug: false,
       effects: false,
-      audioMeter: false,
       ignoreSilenceLyrics: false,
     })
   })
@@ -121,13 +118,11 @@ describe("sanitizePreferences", () => {
       sanitizePreferences({
         debug: true,
         effects: false,
-        audioMeter: true,
         ignoreSilenceLyrics: false,
       }),
     ).toEqual({
       debug: true,
       effects: false,
-      audioMeter: true,
       ignoreSilenceLyrics: false,
     })
   })

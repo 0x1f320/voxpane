@@ -1,6 +1,5 @@
 import { join } from "node:path"
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron"
-import type { AudioMeterSnapshot } from "../shared/audioMeter"
 import type { BridgeSchedule, BridgeState } from "../shared/bridgeChannels"
 import type {
   BridgeChannelDiagnostics,
@@ -143,29 +142,6 @@ async function nativeCanvasAsync() {
 contextBridge.exposeInMainWorld("overlay", {
   getCanvasAsync: (): Promise<CanvasSnapshot | null> =>
     nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
-})
-
-async function readAudioMeter(): Promise<AudioMeterSnapshot> {
-  return ipcRenderer.invoke("audioMeter:read")
-}
-
-async function startAudioMeter(): Promise<AudioMeterSnapshot> {
-  return ipcRenderer.invoke("audioMeter:start")
-}
-
-async function requestAudioMeterAccess(): Promise<boolean> {
-  return ipcRenderer.invoke("audioMeter:requestAccess")
-}
-
-async function stopAudioMeter(): Promise<AudioMeterSnapshot> {
-  return ipcRenderer.invoke("audioMeter:stop")
-}
-
-contextBridge.exposeInMainWorld("audioMeter", {
-  requestAccess: requestAudioMeterAccess,
-  start: startAudioMeter,
-  stop: stopAudioMeter,
-  read: readAudioMeter,
 })
 
 // A Node-enabled Web Worker owns the bridge endpoints and transfers complete

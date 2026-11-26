@@ -10,8 +10,6 @@
 extern crate napi_derive;
 
 #[cfg(windows)]
-mod audio;
-#[cfg(windows)]
 mod stick;
 #[cfg(windows)]
 mod types;

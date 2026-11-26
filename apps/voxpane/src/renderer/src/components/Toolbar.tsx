@@ -1,4 +1,4 @@
-import { Gauge, Settings, Sparkles, X } from "lucide-react"
+import { Settings, Sparkles, X } from "lucide-react"
 import { Tooltip } from "radix-ui"
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -9,18 +9,11 @@ import { IconButton } from "./ui/IconButton"
 export function Toolbar() {
   const { t } = useTranslation()
   const [effects, setEffects] = useState(false)
-  const [audioMeter, setAudioMeter] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    window.preferences.get().then((p) => {
-      setEffects(p.effects)
-      setAudioMeter(p.audioMeter)
-    })
-    return window.preferences.onChange((p) => {
-      setEffects(p.effects)
-      setAudioMeter(p.audioMeter)
-    })
+    window.preferences.get().then((p) => setEffects(p.effects))
+    return window.preferences.onChange((p) => setEffects(p.effects))
   }, [])
 
   // The window is held hidden until the first height lands, and a window that
@@ -45,20 +38,10 @@ export function Toolbar() {
     window.preferences.update({ effects: next })
   }
 
-  const toggleAudioMeter = async () => {
-    const next = !audioMeter
-    if (next && !(await window.audioMeter.requestAccess())) {
-      return
-    }
-    setAudioMeter(next)
-    window.preferences.update({ audioMeter: next })
-  }
-
   const effectsLabel = t("toolbar.effects")
-  const audioMeterLabel = t("toolbar.audioMeter")
   const settingsLabel = t("toolbar.settings")
   const quitLabel = t("toolbar.quit")
-  const itemCount = 4
+  const itemCount = 3
 
   return (
     <div
@@ -78,19 +61,8 @@ export function Toolbar() {
               <Sparkles size={20} strokeWidth={1.5} />
             </IconButton>
           </ToolbarHint>
-          <ToolbarHint label={audioMeterLabel} side={toolbarTooltipSide(1, itemCount)}>
-            <IconButton
-              className="w-3/4"
-              on={audioMeter}
-              aria-pressed={audioMeter}
-              aria-label={audioMeterLabel}
-              onClick={toggleAudioMeter}
-            >
-              <Gauge size={20} strokeWidth={1.5} />
-            </IconButton>
-          </ToolbarHint>
           <div className="my-1 h-px w-1/2 bg-white/25" />
-          <ToolbarHint label={settingsLabel} side={toolbarTooltipSide(2, itemCount)}>
+          <ToolbarHint label={settingsLabel} side={toolbarTooltipSide(1, itemCount)}>
             <IconButton
               className="w-3/4"
               aria-label={settingsLabel}
@@ -99,7 +71,7 @@ export function Toolbar() {
               <Settings size={20} strokeWidth={1.5} />
             </IconButton>
           </ToolbarHint>
-          <ToolbarHint label={quitLabel} side={toolbarTooltipSide(3, itemCount)}>
+          <ToolbarHint label={quitLabel} side={toolbarTooltipSide(2, itemCount)}>
             <IconButton
               className="w-3/4"
               tone="danger"
