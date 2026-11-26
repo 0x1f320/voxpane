@@ -26,12 +26,15 @@ vi.mock("./resources", () => ({
   resourcePath: mocks.resourcePath,
 }))
 
+vi.mock("./log", () => ({
+  logger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn(), debug: vi.fn() }),
+}))
+
 describe("installBridgeScript", () => {
   let tmp: string
   let bundled: string
   let scripts: string
   let previousOverride: string | undefined
-  let logSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     vi.resetModules()
@@ -43,13 +46,11 @@ describe("installBridgeScript", () => {
     fs.mkdirSync(scripts)
     fs.writeFileSync(bundled, "bridge script")
     mocks.resourcePath.mockReturnValue(bundled)
-    logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined)
     previousOverride = process.env.SYNTHV_SCRIPTS_DIR
     process.env.SYNTHV_SCRIPTS_DIR = scripts
   })
 
   afterEach(() => {
-    logSpy.mockRestore()
     if (previousOverride === undefined) {
       delete process.env.SYNTHV_SCRIPTS_DIR
     } else {
