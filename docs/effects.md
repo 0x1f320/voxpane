@@ -250,11 +250,18 @@ n = \lfloor \text{debt} \rfloor
 
 Envelopes use $e^{-\Delta t/\tau}$ rather than a per-frame multiplier, for the same reason.
 
-$\Delta t$ is clamped to `MAX_STEP_SEC` 0.1 s. A longer gap means the window was hidden or the
-loop stalled; catching up would fire a burst, so it is treated as a fresh start.
+$\Delta t$ is clamped to `MAX_STEP_SEC` 0.1 s. A longer gap means the loop stalled; catching
+up would fire a burst, so the step is cut short instead.
+
+A loop that stopped on purpose is a different case, and a routine one: the overlay's frame
+loop [rests whenever there is nothing to draw](overlay.md#frames-on-demand), so every start
+of playback follows a gap. That loop restarts the clock outright (`resetFrameClock`), which
+makes the first frame after a wake a zero-length step — the strike that opens playback is
+drawn at full burst, and no tenth of a second of sparks is spent on it in one clump.
 
 **Breaks as:** twice the sparks on a 120 Hz display · a burst of particles when the window
-is un-hidden · effects that speed up on a fast machine.
+is un-hidden, or a weak first strike with a clump of sparks at the start of playback (the
+clock not restarted after a rest) · effects that speed up on a fast machine.
 
 ### Procedural textures, built once
 
@@ -319,9 +326,16 @@ Four things worth knowing:
   Nothing may draw over the phoneme lane, the piano keys or the toolbars.
 - **Layer order is back to front:** the trail is what the light has already passed over, so
   the glow and then the sparks read as being in front of it.
-- **Pixi's ticker is stopped** (`autoStart: false`, `sharedTicker: false`). Rendering is
-  driven from the app's own rAF, which builds the live viewport for that frame — Pixi
-  rendering behind our back would draw with a stale transform.
+- **Pixi never asks for a frame.** Rendering is driven from the app's own rAF, which builds
+  the live viewport for that frame — Pixi rendering behind our back would draw with a stale
+  transform — so the application's ticker is stopped (`autoStart: false`,
+  `sharedTicker: false`). That is not the only one: Pixi 8 also starts `Ticker.system`, a
+  process-wide ticker, for its event system and its scheduler, and it requests an animation
+  frame on every refresh whether or not anything is rendered. `NoteRenderer` stops that too.
+  The event system's DOM target is detached, because nothing here handles pointer input and
+  left attached it hit-tests the scene on every mouse move over the click-through window.
+  The scheduler only paces Pixi's resource garbage collection, which acts after a render, so
+  it is advanced from `draw` rather than left without a clock.
 
 `NoteRenderer` owns its `<canvas>` rather than taking one from React: tearing down a WebGL
 renderer loses its context for good, so a canvas that survived an HMR reload would come back
@@ -361,6 +375,7 @@ own. It shares `palette.ts` with the overlay for the same reason.
 | Effects keep stepping after playback stops | the last sparks and the glow release are cut off mid-air |
 | Live effect positions are rebased when the note read is replaced | everything jumps when a read lands during a scroll |
 | `dt` is clamped and every rate is integrated | a hidden window comes back with a burst; 120 Hz doubles the output |
+| Pixi's own tickers stay stopped, and its scheduler is advanced from `draw` | the overlay keeps requesting frames while [resting](overlay.md#frames-on-demand); or Pixi's garbage collection never runs |
 | Saturation drops new sparks, never recycles live ones | particles teleport |
 | Trail runs break sideways, never vertically | streaks across the roll, or a vibrato that will not draw |
 | Preferences carry an asset *name*, never a path or bytes | a preset shared between machines writes outside the asset directory |

@@ -4,6 +4,7 @@ import { bridgeDirectory } from "../shared/bridgePath"
 import { BRIDGE_SHUTDOWN_COMPLETE, BRIDGE_SHUTDOWN_REQUEST } from "../shared/bridgeShutdownIpc"
 import { APP_NAME } from "../shared/i18n"
 import { NATIVE_TARGET, native, type Rect } from "../shared/native"
+import { OVERLAY_SHOWN_CHANNEL } from "../shared/overlayShownIpc"
 import { registerAssetIpc, registerAssetScheme } from "./assets"
 import { prepareBridgeDirectory } from "./bridge"
 import { installBridgeScript } from "./bridgeScript"
@@ -18,6 +19,7 @@ import { initI18n } from "./i18n"
 import { initLogging, logger, registerLogIpc, watchWindowLifecycle } from "./log"
 import { createOverlayWindow, positionOverlay } from "./overlay"
 import { registerOverlayGeometryIpc } from "./overlayGeometry"
+import { OverlayVisibility } from "./overlayVisibility"
 import {
   isAccessibilityTrusted,
   openPermissionsWindow,
@@ -65,6 +67,7 @@ const geometryLog = logger("geometry")
 
 let overlayWin: BrowserWindow | null = null
 let toolbarWin: BrowserWindow | null = null
+const overlayVisibility = new OverlayVisibility()
 let quitting = false
 const BRIDGE_SHUTDOWN_TIMEOUT_MS = 1_000
 
@@ -257,9 +260,7 @@ function observeTarget(): void {
         } else {
           positionOverlay(overlayWin, f)
         }
-        if (!overlayWin.isVisible()) {
-          overlayWin.showInactive()
-        }
+        overlayVisibility.apply(overlayWin, true)
       }
       dockedFrame = f
       syncToolbar()
@@ -283,10 +284,11 @@ function observeTarget(): void {
       // Nothing is docked any more, so a late measurement must not bring the
       // panel back on its own.
       dockedFrame = null
-      for (const w of [overlayWin, toolbarWin]) {
-        if (w && !w.isDestroyed() && w.isVisible()) {
-          w.hide()
-        }
+      if (overlayWin) {
+        overlayVisibility.apply(overlayWin, false)
+      }
+      if (toolbarWin && !toolbarWin.isDestroyed() && toolbarWin.isVisible()) {
+        toolbarWin.hide()
       }
     },
   })
@@ -315,6 +317,7 @@ app.whenReady().then(() => {
       geometryLog.info("found the Accessibility canvas")
     }
   })
+  ipcMain.handle(OVERLAY_SHOWN_CHANNEL, () => overlayVisibility.shown)
   registerPermissionsIpc()
   registerToolbarIpc(syncToolbar)
   ipcMain.handle("settings:open", () => openSettingsWindow())

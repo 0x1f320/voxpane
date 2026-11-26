@@ -113,6 +113,12 @@ timing graph는 accepted state와 viewport application을 drawing과 비교한�
 accepted sample 부재다. renderer latency report는 overlay DevTools에, development에서는 main terminal에도
 나온다.
 
+debug mode는 자기가 관찰하는 대상을 바꾼다: 창이 보이는 동안 overlay의 frame loop를 계속 돌게 한다.
+debug mode가 없으면, 그릴 것이 없는 overlay는 **frame을 아예 만들지 않는다**
+([overlay.ko.md](overlay.ko.md#frames-on-demand)). 따라서 SynthV가 stopped인 동안 DevTools performance
+panel에 frame이 하나도 안 보이는 overlay는 멈춘 것이 아니라 쉬는 것이고, 쉬지 못하는 loop는 debug mode를
+끈 상태에서 빈 frame이 끊임없이 이어지는 모습으로 거기에 나타난다.
+
 ## Deployment and rescan
 
 ```sh
@@ -147,6 +153,8 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 | app crash 뒤 SynthV가 멈춤 | kill 전에 session guardian이 있었고 뒤에 `pipe-session`이 unavailable이 되는지 확인 |
 | overlay가 전혀 안 그림 | tray attachment, side-panel connection/error, debug rect 순서로 확인 |
 | 재현할 수 없는 문제를 사용자가 보고함 | **Open log folder**로 받은 `main.log`의 `stick`, `geometry`, `bridge` line |
+| effect가 늦게 시작하거나, 설정을 건드린 뒤에야 나옴 | frame loop의 wake를 놓침 — [overlay.ko.md](overlay.ko.md#frames-on-demand) |
+| 대기 중 CPU가 playback 때만큼 높음 | 먼저 debug mode를 끈다. 그다음 무엇이 frame을 계속 요청하는지 — [overlay.ko.md](overlay.ko.md#frames-on-demand) |
 | pipe가 반복 recover | diagnostic recovery, malformed frame, endpoint failure, disconnect 확인 |
 | new state가 무시됨 | diagnostic invalid, `scrollSeq`, `notesSeq`, `rev` mismatch observation 확인 |
 | scroll 때 effect가 밀림 | debug rect와 [architecture.md](architecture.md#geometry-path)의 generation candidate matcher 확인 |

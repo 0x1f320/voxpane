@@ -36,6 +36,9 @@ Two `webPreferences` entries are load-bearing:
   per-frame path** — see [the hot path](#the-hot-path).
 - **`backgroundThrottling: false`.** The overlay is never focused, and Electron throttles
   rAF and timers in unfocused windows. Without this the overlay visibly lags behind a scroll.
+  The price is that Chromium also stops pausing rAF for a window that is hidden, or was never
+  shown, so the renderer cannot tell from its own frame loop whether anyone can see it. Main
+  tells it — see [frames on demand](#frames-on-demand).
 
 The window is created hidden and only shown once the helper reports a frame — there is
 nothing to show before the target is found.
@@ -178,6 +181,10 @@ there**, because ownership already lets other windows cover the overlay naturall
 Screen Recording is deliberately *not* requested: the check reads bounds, pid and layer, none
 of which that permission gates — it covers window titles and pixel capture.
 
+Main relays every show and hide to the overlay's renderer (`OverlayVisibility`, over
+`overlay:shown`), because the renderer has no other way to learn of it — see
+[frames on demand](#frames-on-demand).
+
 **Breaks as:** the overlay floating over an unrelated app that is covering SynthV (macOS
 occlusion) · the overlay surviving a minimise.
 
@@ -191,6 +198,7 @@ The per-frame path deliberately does not cross a process boundary.
 | read the latest bridge `state` | preload memory cache | allocation-free, no file I/O |
 | refresh the canvas snapshot | macOS: main IPC; Windows: preload native read | every ~250 ms, off the rAF call stack |
 | decide and draw | renderer | one transform on a plain scroll |
+| wake a resting frame loop | preload callback; main `overlay:shown` push | once per transition, never per frame |
 
 The bridge state and draw decision stay **inside the overlay renderer's process**, via
 `contextBridge`. The low-rate canvas refresh may cross main on macOS so Accessibility's TCC
@@ -210,6 +218,76 @@ viewport. There is no separate note pump.
 
 **Breaks as:** scroll lag (something moved onto the IPC path) · GC sawtooth (the state buffer
 is being reallocated).
+
+### Frames on demand
+
+The frame loop runs only while there is something to draw. When there is not, it draws one
+cleared frame and stops calling `requestAnimationFrame`. An event restarts it; nothing polls.
+
+**Why stop, rather than skip the draw.** What a frame costs is being produced at all — waking
+the renderer, submitting the canvas, compositing a transparent window the size of SynthV —
+not what is drawn into it. **Observed** on an M2 Max, with the window maximized on a 6K
+display at 60 Hz, as CPU of the renderer and GPU processes in percent of one core:
+redrawing an empty scene every frame cost about 14 with SynthV stopped, where playback with
+every effect on cost about 21. A loop that kept asking for frames and drew nothing still
+cost about 1 more than a loop that had stopped. So the lever is not drawing less. It is not
+asking.
+
+**What counts as something to draw** is decided in `playback/frameLoop.ts`, from six facts
+about the frame just drawn:
+
+| A frame is needed while | Because |
+| --- | --- |
+| the window is shown, playback is running, and at least one effect is on | effects are being fed |
+| anything emitted earlier is still in flight | it has to finish — shown or not, see below |
+| the window is shown and debug mode is on | debug rectangles follow scroll and zoom, which happen while stopped |
+| the window is shown and the latency probe is on | it samples every frame |
+
+Playback alone is not on that list: with every effect switched off there is nothing to draw
+however hard the transport runs.
+
+**What wakes it.** Each of those facts can only become true through one of three events, and
+each event calls `FrameLoop.wake`, which does nothing to a loop that is already running:
+
+- **Playback starts.** The preload already receives every state record, so the loop asks it:
+  when it stops it arms `BridgeRuntime.awaitPlayback`, and the runtime calls back as it next
+  composes a state that is not stopped. The first frame after that reads the same state, so
+  the note sounding when playback begins is struck on it. The wake is one-shot, and armed only
+  when playback starting would actually leave something to draw — armed while playback is
+  already running behind a hidden window, it would fire on every record. It never fires for
+  the state already held: a script that went quiet mid-playback leaves a playing state
+  standing in the cache indefinitely.
+- **A preference changes.** Debug mode and every effect switch arrive through `adopt`.
+- **The window is shown or hidden.** Main pushes `overlay:shown` whenever it shows or hides
+  the window, and answers the same channel once at load. A push overrides that reply and
+  never the reverse — the two travel separately. The state starts as *hidden*, so an overlay
+  that was created and never shown draws nothing: that is the app running without SynthV.
+
+The latency probe is the one input with no event behind it. Its switch is a `localStorage`
+flag read inside a frame, so set on a resting overlay it takes effect at the next wake.
+
+**Hidden is main's word, not the window's.** `OverlayVisibility` tracks what main intends
+rather than reading `isVisible()` back, because on Windows the system hides and restores an
+owned window along with its owner without Electron being asked.
+
+**What is in flight outlives all of it.** Stopping playback, hiding the window, or switching
+an effect off stops effects being *fed*; the loop keeps stepping until nothing is left, and
+only then clears and stops. Behind a hidden window they are stepped unplaced, so that the
+window cannot come back seconds later with sparks resuming mid-air.
+
+**The loop comes back as a fresh start.** A frame that drew nothing restarts the effects'
+frame clock, so the first frame after a rest is a zero-length step —
+[effects.md](effects.md#frame-rate-independence).
+
+**Pixi must not ask either.** A ticker of its own that keeps requesting frames undoes all of
+this without anything looking wrong — [effects.md](effects.md#the-scene-graph).
+
+**Breaks as:** effects missing the start of playback, or an overlay that draws nothing until
+a setting is touched (a missed wake — a new input to `FrameDemand` with no event behind it) ·
+idle CPU as high as during playback (something still asks for frames: a Pixi ticker, or a
+wake armed while its condition already holds) · the last sparks frozen on screen or cut off
+(stopped before the clearing frame, or before the effects ran out) · stale sparks finishing
+their flight when the window reappears (effects frozen while hidden instead of stepped).
 
 ### Sampling paired values together
 
@@ -266,5 +344,7 @@ Worth knowing, in order:
 | Electron's bounds are reconciled only after movement settles | a visible chase during drags, or a snap-back on show |
 | `backgroundThrottling` stays off | the overlay lags behind scrolling |
 | Nothing per-frame crosses to the main process | scroll lag returns |
+| The frame loop rests when there is nothing to draw | idle costs as much as playback |
+| Everything that can give the loop something to draw wakes it | effects miss the start of playback, or never come back |
 | Paired values are sampled in the same breath | the drawing slides against the window |
 | The overlay is hidden whenever the target is not showable | effects float over unrelated windows |

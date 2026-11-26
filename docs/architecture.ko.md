@@ -54,8 +54,10 @@ flowchart TD
 ```
 
 Main은 permissions, tray, preferences, `overlay-bridge.lua` 설치와 rescan, window following, graceful
-shutdown처럼 수명이 긴 Electron 작업을 소유한다. Main은 overlay를 start/supervise한 뒤 preload bridge
-owner에게 shutdown request를 보낸다. preload는 worker와 `BridgeRuntime`을 construct한다. worker는 pipe
+shutdown처럼 수명이 긴 Electron 작업을 소유한다. Main은 overlay를 start/supervise하고, 그 창이 보이는지
+숨겨졌는지를 renderer에 알려 주며 — renderer는 이를
+[스스로 관찰할 수 없다](overlay.ko.md#frames-on-demand) — preload bridge owner에게 shutdown request를
+보낸다. preload는 worker와 `BridgeRuntime`을 construct한다. worker는 pipe
 server, framed parser, session gate, reconnect/recovery lifecycle을 소유하고 accepted frame record를
 `BridgeRuntime`으로 post한다. `BridgeRuntime`은 그 record를 decode하고 matching generation을 snapshot cache로
 compose하며, 그 cache/API를 renderer에 expose한다. renderer `requestAnimationFrame`은 main이나 pipe를
@@ -96,10 +98,16 @@ native canvas anchor를 결합한다. 따라서 세 pipe stream이 clock을 공�
 찾고, canvas-local rect에 현재 viewport와 native anchor를 결합하고, pitch를 sample한 뒤 그린다.
 Native canvas discovery는 별도로 돌아가므로 조금 낡은 anchor가 현재 scroll transform을 막지 못한다.
 
+이 loop는 항상 돌지 않는다. frame 하나를 만들어 내는 비용은 pixel을 바꾸든 말든 거의 같으므로, 그릴 것이
+없으면 loop는 canvas를 한 번 지우고 frame 요청을 멈춘다. playback 시작, preference 변경, 창이 보이게 되는
+것이 loop를 깨운다. 이 mechanism의 집은 [overlay.ko.md](overlay.ko.md#frames-on-demand)다. 이 계층에
+닿는 곳은 하나다: transport는 frame 안에서만 poll되므로 loop가 쉬는 동안에는 아무것도 state channel을
+읽지 않는다 — wake 뒤 첫 frame이 읽고, 거기에 playhead를 anchor한다.
+
 중요한 clock은 서로 독립이다: Lua의 4 ms tick, 앱의 500 ms rendezvous heartbeat, event-driven pipe
-receipt, native canvas refresh, `requestAnimationFrame`. 이들은 의도적으로 synchronize하지 않는다.
-script 부재, pipe disconnect, malformed frame, native anchor 부재는 frame loop throw가 아니라 아무것도
-그리지 않는 상태다.
+receipt, native canvas refresh, 그리고 loop가 도는 동안의 `requestAnimationFrame`. 이들은 의도적으로
+synchronize하지 않는다. script 부재, pipe disconnect, malformed frame, native anchor 부재는 frame loop
+throw가 아니라 아무것도 그리지 않는 상태다.
 
 ## Where things live
 

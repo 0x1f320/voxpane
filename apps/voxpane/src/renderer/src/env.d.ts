@@ -8,6 +8,9 @@ declare global {
   interface Window {
     overlay: {
       getCanvasAsync(): Promise<CanvasSnapshot | null>
+      /** Whether main is showing the overlay window. False until main says otherwise. */
+      isShown(): boolean
+      onShownChange(callback: (shown: boolean) => void): () => void
     }
     bridge: {
       /** The hot channel: playhead, transport and view transform. Safe per-frame. */
@@ -15,6 +18,12 @@ declare global {
       /** The note schedule. Only worth reading when readState's notesSeq changes. */
       readSchedule(notesSeq: number): BridgeSchedule | null
       readDiagnostics(): BridgeDiagnostics
+      /**
+       * Arm a one-shot: `listener` runs when a state that is not stopped next
+       * arrives. For a frame loop that stopped while nothing was playing; never
+       * fires for the state `readState` already returns.
+       */
+      wakeOnPlayback(listener: () => void): void
       setDiagnosticsEnabled(enabled: boolean): void
       /** Monotonic clock shared with native geometry reads, for measuring age. */
       monotonicNow(): number

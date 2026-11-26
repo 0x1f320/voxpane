@@ -48,6 +48,7 @@ export class BridgeRuntime {
   private lastNotesMismatchKey: string | null = null
   private lastRevisionMismatchKey: string | null = null
   private transportSession: string | null = null
+  private playbackWaiter: (() => void) | null = null
   private diagnostics: BridgeDiagnostics = {
     state: null,
     scroll: null,
@@ -80,6 +81,15 @@ export class BridgeRuntime {
 
   readState(): BridgeState | null {
     return this.state
+  }
+
+  /**
+   * Arms a one-shot: `listener` runs when a state that is not stopped is next
+   * composed. Never for the state already held — the caller has read that one,
+   * and a script that went quiet mid-playback leaves it standing indefinitely.
+   */
+  awaitPlayback(listener: () => void): void {
+    this.playbackWaiter = listener
   }
 
   acceptScroll(bytes: Uint8Array, diagnostics: BridgeChannelDiagnostics | null = null): void {
@@ -239,6 +249,11 @@ export class BridgeRuntime {
         this.schedule === null
           ? null
           : { notesSeq: this.schedule.notesSeq, rev: this.schedule.rev },
+    }
+    if (this.state.status !== "stopped") {
+      const waiter = this.playbackWaiter
+      this.playbackWaiter = null
+      waiter?.()
     }
   }
 

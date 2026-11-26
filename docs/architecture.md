@@ -57,7 +57,9 @@ flowchart TD
 
 Main owns long-lived Electron work: permissions, the tray, preferences, installing and
 rescanning `overlay-bridge.lua`, window following, and graceful shutdown. It starts and
-supervises the overlay, then sends a shutdown request to its preload bridge owner. The
+supervises the overlay, tells its renderer when the window is shown or hidden — which the
+renderer [cannot observe for itself](overlay.md#frames-on-demand) — and sends a shutdown
+request to its preload bridge owner. The
 preload constructs the worker and `BridgeRuntime`. The worker owns the pipe servers, framed
 parsing, session gate, and reconnect/recovery lifecycle, then posts accepted frame records
 to `BridgeRuntime`. `BridgeRuntime` decodes those records, composes matching generations into
@@ -104,10 +106,19 @@ finds the sounding note, combines its canvas-local rectangle with the current vi
 native anchor, samples pitch, and draws. Native canvas discovery runs separately, so an
 older anchor can never block a current scroll transform.
 
+The loop does not run all the time. Producing a frame costs nearly the same whether or not
+it changes a pixel, so when there is nothing to draw the loop clears the canvas once and
+stops asking for frames; playback starting, a preference changing, or the window being shown
+wakes it. [overlay.md](overlay.md#frames-on-demand) is the home of that mechanism. It reaches
+into this layer in one place: the transport is only polled inside a frame, so while the loop
+rests nothing reads the state channel — the first frame after a wake does, and anchors the
+playhead there.
+
 The relevant clocks are independent: Lua's 4 ms tick, the app's 500 ms rendezvous
-heartbeat, event-driven pipe receipt, native canvas refresh, and `requestAnimationFrame`.
-They are intentionally not synchronized. A missing script, disconnected pipe, malformed
-frame, or absent native anchor means nothing is drawn, not that the frame loop throws.
+heartbeat, event-driven pipe receipt, native canvas refresh, and `requestAnimationFrame`
+while the loop runs. They are intentionally not synchronized. A missing script, disconnected
+pipe, malformed frame, or absent native anchor means nothing is drawn, not that the frame
+loop throws.
 
 ## Where things live
 
