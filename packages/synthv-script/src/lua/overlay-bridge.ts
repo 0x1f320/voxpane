@@ -7,9 +7,9 @@
  * the user, so it was taken for 150ms on a transport *event* and given back —
  * and so the script had to decide what counted as an event: is this a seek, a
  * loop wrap, an edit? The app-owned pipe transport lets state go out on every
- * tick and the app, which receives it independently of drawing, sees the
- * discontinuity itself. `kind`, the seek tolerance and the anchor machinery all
- * belonged to the clipboard and left with it.
+ * tick of playback and the app, which receives it independently of drawing, sees
+ * the discontinuity itself. `kind`, the seek tolerance and the anchor machinery
+ * all belonged to the clipboard and left with it.
  *
  * What stays here is what only the script can see: the note schedule, the
  * computed pitch curve, and the view transform.
@@ -27,11 +27,12 @@ const SCRIPT_TITLE = "Overlay Bridge"
 
 const CONFIG = {
   /**
-   * Publishing state on every tick keeps viewport updates current while the
-   * transport is stopped, which is exactly when the user scrolls.
-   * On Windows the view transform published here is the app's only source for
-   * where the piano roll is scrolled to, so a slower idle tick is a scroll the
-   * overlay follows a tick late.
+   * Sampling the view on every tick keeps viewport updates current while the
+   * transport is stopped, which is exactly when the user scrolls. The transform
+   * published here is the app's only source for where the piano roll is
+   * scrolled to, so a slower idle tick is a scroll the overlay follows a tick
+   * late. What a tick sends is the publisher's decision, not this one's: a
+   * stopped transport with nothing new to report costs a comparison.
    */
   tickInterval: 4,
   /**

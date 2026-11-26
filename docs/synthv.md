@@ -48,11 +48,32 @@ resets `seq`, `scrollSeq`, and `notesSeq`, and sends a session frame. It then ma
 recovery snapshot: full notes, current scroll, and current state. This is automatic on each
 reconnect, not an optimization that assumes the app retained old data.
 
-After that, `state` publishes the playhead, transport status, `rev`, `scrollSeq`, and
-`notesSeq` every tick. `scroll` publishes only when the six view values change. `notes`
-publishes on initial recovery, user request, playback start when needed, and detected edit.
+After that, every tick samples the playhead, the transport status and the view, and what it
+writes depends on what moved:
+
+- **`state`** — the playhead, transport status, `rev`, `scrollSeq`, and `notesSeq` — is
+  written on **every tick while the transport is playing or looping**. The app pins its
+  playhead to the newest record at the moment it reads it, so during playback a record has
+  to be at most a tick old; that cadence is never thinned, not even for a playhead standing
+  still under a playing status.
+- **While stopped**, a tick writes `state` only when one of those values differs from the
+  last record written, or when `STATE_KEEPALIVE_MS` **48** nominal milliseconds have passed
+  without one. An unchanged stopped record is not worth a `string.pack` and a synchronous
+  write on SynthV's UI thread 250 times a second, nor a wake-up of the app for each.
+- **`scroll`** is written only when the six view values change. A changed view moves
+  `scrollSeq`, which makes the `state` naming it due on the same tick — the app composes a
+  snapshot only from a `state` and a `scroll` that agree.
+- **`notes`** is written on initial recovery, user request, playback start when needed, and
+  detected edit.
+
 The app may receive these three streams in any order and accepts a composed snapshot only
 after their sequence and revision relation matches.
+
+The keepalive is the script's half of a liveness contract whose other half is in the app —
+see [bridge.md](bridge.md#liveness). It is deliberately a tenth of the app's limit rather
+than close to it, because the script cannot measure the interval it is promising: this Lua
+host has no wall clock finer than a second, so elapsed time is a count of ticks, and how
+far `SV.setTimeout(4)` stretches under a busy editor has **not been measured**.
 
 The session frame carries protocol/layout, `appSession`, `scriptSession`, script version,
 and host information. `appSession` comes from the app rendezvous; `scriptSession` changes

@@ -43,10 +43,29 @@ script는 4 ms tick으로 돈다. 새 app connection에서 새로운 `scriptSess
 current scroll, current state를 publish한다. 이는 app이 예전 데이터를 보관했다고 가정하는 optimization이
 아니라 reconnect마다 수행된다.
 
-그 뒤 `state`는 playhead, transport status, `rev`, `scrollSeq`, `notesSeq`를 매 tick publish한다. `scroll`은
-여섯 view value가 바뀔 때만 publish한다. `notes`는 initial recovery, user request, 필요할 때 playback start,
-detected edit에 publish한다. 앱은 세 stream을 어떤 순서로든 받을 수 있으므로 sequence와 revision relation이
-일치한 뒤에만 composed snapshot을 accept한다.
+그 뒤 매 tick이 playhead, transport status, view를 sample하고, 무엇을 쓰는지는 무엇이 움직였는지에
+달려 있다:
+
+- **`state`** — playhead, transport status, `rev`, `scrollSeq`, `notesSeq` — 는 **transport가 playing
+  이거나 looping인 동안 매 tick** 쓴다. 앱은 record를 읽는 그 순간에 playhead를 가장 새 record에 고정
+  하므로, playback 중에는 record가 길어야 한 tick 묵은 것이어야 한다. 이 cadence는 절대 줄이지 않는다.
+  playing status 아래에서 playhead가 멈춰 서 있을 때도 마찬가지다.
+- **stopped인 동안**에는 그 값들 중 하나가 마지막으로 쓴 record와 다를 때, 또는 `STATE_KEEPALIVE_MS`
+  **48** nominal millisecond 동안 하나도 쓰지 않았을 때만 `state`를 쓴다. 바뀐 것 없는 stopped record는
+  SynthV의 UI thread에서 초당 250번의 `string.pack`과 synchronous write를 할 가치도, 그때마다 앱을 깨울
+  가치도 없다.
+- **`scroll`**은 여섯 view value가 바뀔 때만 쓴다. view가 바뀌면 `scrollSeq`가 움직이고, 그러면 그 값을
+  가리키는 `state`도 같은 tick에 나간다 — 앱은 서로 일치하는 `state`와 `scroll`로만 snapshot을 compose한다.
+- **`notes`**는 initial recovery, user request, 필요할 때 playback start, detected edit에 쓴다.
+
+앱은 세 stream을 어떤 순서로든 받을 수 있으므로 sequence와 revision relation이 일치한 뒤에만 composed
+snapshot을 accept한다.
+
+keepalive는 liveness 계약의 script 쪽 절반이고 나머지 절반은 앱에 있다 —
+[bridge.ko.md](bridge.ko.md#liveness) 참고. 이 값은 앱의 한계에 가깝게가 아니라 일부러 그 10분의 1로
+잡았다. script가 자기가 약속하는 간격을 잴 수 없기 때문이다: 이 Lua host에는 1초보다 가는 wall clock이
+없어서 경과 시간은 tick 수이고, 바쁜 editor 아래에서 `SV.setTimeout(4)`가 얼마나 늘어지는지는
+**측정되지 않았다**.
 
 session frame은 protocol/layout, `appSession`, `scriptSession`, script version, host information을 담는다.
 `appSession`은 app rendezvous에서 오고, `scriptSession`은 Lua publisher가 reconnect할 때 바뀐다. 그 뒤

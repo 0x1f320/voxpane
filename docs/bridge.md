@@ -134,6 +134,32 @@ the same app session.
 `appSession` identifies one app endpoint generation. `scriptSession` identifies one Lua
 publication generation within that app session. They are not interchangeable.
 
+## Liveness
+
+`state` is also how the app knows the script is still there. `seq` advances with every
+state record, and the renderer's `Transport` reads one that has stood still for
+`SILENCE_MS` **500** as the script being gone: it stops extrapolating the playhead and drops
+its view of the roll.
+
+The script writes a record on every tick of playback, and while stopped on any change or
+after `STATE_KEEPALIVE_MS` **48** without one — see [synthv.md](synthv.md#publication) for
+why the two cases differ. The two constants live in different processes and are sized
+against each other. Nothing in the wire format ties them together, so changing either means
+reading the other.
+
+A record the app has declared silent stays the last one it has seen. Only a different `seq`
+revives the transport; reading the same record again must not, or playback that died
+mid-note would be picked back up from its last position every half second.
+
+The check runs inside the overlay's frame loop, which
+[rests when there is nothing to draw](overlay.md#frames-on-demand). A resting loop is not
+watching for silence, and does not need to: the first frame after a wake reads a record whose
+`seq` either moved or did not.
+
+**Breaks as:** effects cut off just after playback stops, or debug rectangles blinking while
+stopped (the keepalive is too sparse for `SILENCE_MS`) · effects replaying the same half
+second after SynthV quits mid-playback (a silent record taken for a fresh one).
+
 ## Frame boundaries
 
 Pipe payloads are framed with the bridge header, layout, channel, and payload length. The

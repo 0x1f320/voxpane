@@ -87,6 +87,14 @@ const defaultState = {
   rev: "rev-1",
 }
 
+const stoppedState = { ...defaultState, status: "stopped" }
+
+function stateWrites(): string[] {
+  return pipe.writes
+    .filter(([channel, frame]) => channel === "state" && frame.startsWith("state:"))
+    .map(([, frame]) => frame)
+}
+
 function sessionPayload(index: number): Record<string, unknown> {
   const frame = pipe.writes[index][1]
   expect(frame.startsWith("session:")).toBe(true)
@@ -280,5 +288,145 @@ describe("createPublisher", () => {
 
     expect(pipe.invalidations).toEqual(["notes collection failed"])
     expect(publisher.describe()).toContain("notes collection failed")
+  })
+})
+
+describe("state cadence", () => {
+  function tick(
+    publisher: ReturnType<typeof createPublisher>,
+    elapsedMs: number,
+    state: typeof defaultState,
+  ): void {
+    publisher.prepare(elapsedMs)
+    publisher.publishState(state)
+  }
+
+  it("writes a stopped state once and then stays quiet while nothing changes", () => {
+    const publisher = createPublisher()
+
+    for (let elapsedMs = 0; elapsedMs < 48; elapsedMs += 4) {
+      tick(publisher, elapsedMs, stoppedState)
+    }
+
+    expect(stateWrites()).toEqual(["state:1:notes=0:scroll=1"])
+    expect(publisher.describe()).toContain("seq 1, scroll 1")
+  })
+
+  it("writes a keepalive every 48 ms of quiet, so the app keeps seeing the script alive", () => {
+    const publisher = createPublisher()
+
+    for (let elapsedMs = 0; elapsedMs <= 200; elapsedMs += 4) {
+      tick(publisher, elapsedMs, stoppedState)
+    }
+
+    expect(stateWrites()).toEqual([
+      "state:1:notes=0:scroll=1",
+      "state:2:notes=0:scroll=1",
+      "state:3:notes=0:scroll=1",
+      "state:4:notes=0:scroll=1",
+      "state:5:notes=0:scroll=1",
+    ])
+  })
+
+  it("writes every tick while the transport is not stopped, moving or not", () => {
+    const publisher = createPublisher()
+
+    for (const status of ["playing", "looping"]) {
+      for (let count = 0; count < 3; count += 1) {
+        tick(publisher, 0, { ...defaultState, status })
+      }
+    }
+
+    expect(stateWrites()).toHaveLength(6)
+  })
+
+  it.each([
+    ["the playhead moves", { at: 3 }],
+    ["playback starts", { status: "playing" }],
+    ["loop bounds are learned", { loop: { start: 1, end: 2 } }],
+    ["the revision changes", { rev: "rev-2" }],
+  ])("writes on the tick %s", (_name, change) => {
+    const publisher = createPublisher()
+    tick(publisher, 0, stoppedState)
+    tick(publisher, 4, stoppedState)
+
+    tick(publisher, 8, { ...stoppedState, ...change })
+
+    expect(stateWrites()).toHaveLength(2)
+  })
+
+  it("does not take equal loop bounds in a fresh object for a change", () => {
+    const publisher = createPublisher()
+
+    tick(publisher, 0, { ...stoppedState, loop: { start: 1, end: 2 } })
+    tick(publisher, 4, { ...stoppedState, loop: { start: 1, end: 2 } })
+    tick(publisher, 8, { ...stoppedState, loop: { start: 1, end: 2.5 } })
+
+    expect(stateWrites()).toHaveLength(2)
+  })
+
+  it("writes the state that pairs with a scroll frame on the tick the view moves", () => {
+    const publisher = createPublisher()
+    tick(publisher, 0, stoppedState)
+    tick(publisher, 4, stoppedState)
+    pipe.writes = []
+
+    tick(publisher, 8, { ...stoppedState, viewLeft: 5, viewRight: 15 })
+
+    expect(pipe.writes).toEqual([
+      ["scroll", "scroll:2"],
+      ["state", "state:2:notes=0:scroll=2"],
+    ])
+  })
+
+  it("writes the state that names a new notes generation on the tick it is published", () => {
+    const publisher = createPublisher()
+    tick(publisher, 0, stoppedState)
+    tick(publisher, 4, stoppedState)
+
+    publisher.prepare(8)
+    publisher.publishNotes("rev-1", [])
+    publisher.publishState(stoppedState)
+
+    expect(stateWrites()).toEqual(["state:1:notes=0:scroll=1", "state:2:notes=1:scroll=1"])
+  })
+
+  it("measures the quiet from the last state written, whatever made it due", () => {
+    const publisher = createPublisher()
+    tick(publisher, 0, stoppedState)
+    tick(publisher, 40, { ...stoppedState, at: 3 })
+
+    tick(publisher, 48, { ...stoppedState, at: 3 })
+    tick(publisher, 84, { ...stoppedState, at: 3 })
+    expect(stateWrites()).toHaveLength(2)
+
+    tick(publisher, 88, { ...stoppedState, at: 3 })
+    expect(stateWrites()).toHaveLength(3)
+  })
+
+  it("writes the first state of a new connection even when nothing changed", () => {
+    const publisher = createPublisher()
+    tick(publisher, 0, stoppedState)
+    tick(publisher, 4, stoppedState)
+
+    pipe.connection = { session: APP_A, serial: 2 }
+    tick(publisher, 8, stoppedState)
+
+    expect(stateWrites()).toEqual(["state:1:notes=0:scroll=1", "state:1:notes=0:scroll=1"])
+  })
+
+  it("tries again on the next tick after a state write fails and the pipe comes back", () => {
+    const publisher = createPublisher()
+    tick(publisher, 0, stoppedState)
+    pipe.writeResults = [false]
+
+    tick(publisher, 48, stoppedState)
+    expect(publisher.describe()).toContain("state write failed")
+
+    pipe.connection = { session: APP_A, serial: 2 }
+    tick(publisher, 52, stoppedState)
+
+    expect(stateWrites().at(-1)).toBe("state:1:notes=0:scroll=1")
+    expect(publisher.describe()).toContain("seq 1, scroll 1")
   })
 })

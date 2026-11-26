@@ -54,8 +54,9 @@ SynthV의 **Overlay Bridge** side panel을 연다. loaded version, bridge on/off
 `rendezvous unavailable`은 앱이 endpoint를 advertise하지 않았다는 뜻이다. endpoint open/write failure 또는
 `EPIPE`는 Lua가 endpoint set을 닫고 다른 app session 또는 newer heartbeat를 기다린다는 뜻이다. 첫
 connection도 같은 session의 heartbeat 전진을 기다리므로 이후 240 ms validation이 다음 heartbeat second를
-볼 때까지 `disconnected`가 보일 수 있다. app이 connected인데 sequence가 늘지 않으면 Lua tick이 멈췄거나
-표시된 last error를 확인한다.
+볼 때까지 `disconnected`가 보일 수 있다. state sequence는 playback 중에는 매 tick 전진하고, transport가
+stopped인 동안에는 변화가 있을 때나 48 ms keepalive에서만 전진한다 — 그때는 느린 것이 정상이다. app이
+connected인데 sequence가 아예 늘지 않으면 Lua tick이 멈췄거나 표시된 last error를 확인한다.
 
 **Resend schedule**은 full schedule을 의도적으로 요청한다. clean client reconnect에서도 script가 exact
 notes/scroll/state snapshot을 자동으로 보낸다.
@@ -112,6 +113,11 @@ malformed frame, endpoint failure, disconnect, invalid/sequence/revision mismatc
 timing graph는 accepted state와 viewport application을 drawing과 비교한다. gap은 zero-duration read가 아니라
 accepted sample 부재다. renderer latency report는 overlay DevTools에, development에서는 main terminal에도
 나온다.
+
+transport가 stopped인 동안 state channel은 변화와 keepalive만 나른다
+([synthv.ko.md](synthv.ko.md#publication)). 그래서 state 행의 applied age는 record 사이에 48 ms 정도까지
+올라가고 그 series는 톱니 모양을 그린다. 이것은 publication cadence이지 latency가 아니다. state age가
+transport를 재는 것은 playback 중일 때뿐이고, scroll latency는 어느 쪽이든 scroll series다.
 
 debug mode는 자기가 관찰하는 대상을 바꾼다: 창이 보이는 동안 overlay의 frame loop를 계속 돌게 한다.
 debug mode가 없으면, 그릴 것이 없는 overlay는 **frame을 아예 만들지 않는다**

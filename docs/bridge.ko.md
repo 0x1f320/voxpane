@@ -121,6 +121,29 @@ snapshot을 유지한다.
 `appSession`은 하나의 app endpoint generation을 식별한다. `scriptSession`은 그 app session 안의 하나의
 Lua publication generation을 식별한다. 둘은 바꿔 쓸 수 없다.
 
+## Liveness
+
+`state`는 앱이 script가 아직 거기 있는지 아는 수단이기도 하다. `seq`는 state record마다 전진하고,
+renderer의 `Transport`는 `SILENCE_MS` **500** 동안 멈춰 선 `seq`를 script가 사라진 것으로 읽는다:
+playhead extrapolation을 멈추고 roll에 대한 view를 버린다.
+
+script는 playback 중에는 매 tick, stopped인 동안에는 변화가 있을 때나 `STATE_KEEPALIVE_MS` **48** 동안
+하나도 쓰지 않았을 때 record를 쓴다 — 두 경우가 왜 다른지는 [synthv.ko.md](synthv.ko.md#publication)
+참고. 두 상수는 서로 다른 process에 있고 서로를 기준으로 잡혀 있다. wire format에는 둘을 묶어 주는
+것이 없으므로, 한쪽을 바꾼다는 것은 다른 쪽을 읽는다는 뜻이다.
+
+앱이 silent로 판정한 record는 여전히 "마지막으로 본 record"로 남는다. 다른 `seq`만이 transport를 되살린다.
+같은 record를 다시 읽는 것으로 되살아나면 안 된다. 그러면 note 도중에 죽은 playback이 0.5초마다 그 마지막
+위치에서 다시 이어진다.
+
+이 검사는 overlay의 frame loop 안에서 돌고, 그 loop는
+[그릴 것이 없으면 쉰다](overlay.ko.md#frames-on-demand). 쉬는 loop는 silence를 지켜보지 않으며 그럴 필요도
+없다: wake 뒤 첫 frame이 읽는 record의 `seq`는 움직였거나 움직이지 않았거나 둘 중 하나다.
+
+**깨지면:** playback이 멈춘 직후 effect가 잘려 나감, 또는 stopped 중 debug rect가 깜빡임(keepalive가
+`SILENCE_MS`에 비해 너무 성김) · SynthV가 playback 도중 종료된 뒤 effect가 같은 0.5초를 되풀이함(silent
+record를 fresh record로 받아들임).
+
 ## Frame boundaries
 
 pipe payload는 bridge header, layout, channel, payload length로 frame된다. receiver parser는 endpoint에
