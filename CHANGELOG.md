@@ -1,3 +1,9 @@
+## [1.0.0-dev.12](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.11...v1.0.0-dev.12) (2026-11-26)
+
+### ✨ Features
+
+* **shell:** add structured logging with electron-log ([#110](https://github.com/0x1f320/voxpane/issues/110)) ([b699fb2](https://github.com/0x1f320/voxpane/commit/b699fb296cc7fc3d91aaca7abf0b90b4346a7ba6)), closes [#44](https://github.com/0x1f320/voxpane/issues/44)
+
 ## [1.0.0-dev.11](https://github.com/0x1f320/voxpane/compare/v1.0.0-dev.10...v1.0.0-dev.11) (2026-11-26)
 
 ### ✨ Features
