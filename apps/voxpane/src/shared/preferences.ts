@@ -186,7 +186,6 @@ export type Preferences = {
    * them, so flipping this back on restores the same look.
    */
   effects: boolean
-  audioMeter: boolean
   /** Ignore SynthV helper lyrics that mark breaths, silence, and consonants. */
   ignoreSilenceLyrics: boolean
   particles: ParticlePreferences
@@ -215,7 +214,6 @@ export const DEFAULT_PREFERENCES: Preferences = {
   language: "system",
   debug: false,
   effects: true,
-  audioMeter: false,
   ignoreSilenceLyrics: true,
   particles: {
     enabled: true,
@@ -329,7 +327,6 @@ export type PreferencesPatch = {
   language?: LanguagePreference
   debug?: boolean
   effects?: boolean
-  audioMeter?: boolean
   ignoreSilenceLyrics?: boolean
   particles?: Partial<ParticlePreferences>
   glow?: Partial<GlowPreferences>
@@ -353,7 +350,6 @@ export function mergePreferences(base: Preferences, patch: PreferencesPatch): Pr
     language: patch.language ?? base.language,
     debug: patch.debug ?? base.debug,
     effects: patch.effects ?? base.effects,
-    audioMeter: patch.audioMeter ?? base.audioMeter,
     ignoreSilenceLyrics: patch.ignoreSilenceLyrics ?? base.ignoreSilenceLyrics,
     particles: { ...base.particles, ...patch.particles },
     glow: { ...base.glow, ...patch.glow },
@@ -498,7 +494,6 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
     language,
     debug,
     effects,
-    audioMeter,
     ignoreSilenceLyrics,
     particles,
     glow,
@@ -516,9 +511,6 @@ export function sanitizePreferences(input: unknown): PreferencesPatch {
   }
   if (typeof effects === "boolean") {
     out.effects = effects
-  }
-  if (typeof audioMeter === "boolean") {
-    out.audioMeter = audioMeter
   }
   if (typeof ignoreSilenceLyrics === "boolean") {
     out.ignoreSilenceLyrics = ignoreSilenceLyrics
