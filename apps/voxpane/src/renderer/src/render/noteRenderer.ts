@@ -1,5 +1,5 @@
 import type { Rect } from "@voxpane/macos-helper"
-import { Application, Container, Graphics, type Texture } from "pixi.js"
+import { Application, Container, Graphics, type Texture, Ticker } from "pixi.js"
 import { GlowFlash, type GlowParams } from "./glow"
 import { ParticleField, type ParticleParams } from "./particles"
 import { PitchTrail, type TrailParams } from "./trail"
@@ -72,6 +72,19 @@ interface Style {
 /** Pixi wants a 0xRRGGBB int plus a separate alpha. */
 function rgb(c: Rgba): number {
   return (Math.round(c[0] * 255) << 16) | (Math.round(c[1] * 255) << 8) | Math.round(c[2] * 255)
+}
+
+const NO_EVENT_TARGET = null as unknown as HTMLElement
+
+function stopPixiRequestingFrames(app: Application): void {
+  app.ticker.stop()
+  app.renderer.events.setTargetElement(NO_EVENT_TARGET)
+  Ticker.system.autoStart = false
+  Ticker.system.stop()
+}
+
+function runPixiScheduledWork(): void {
+  Ticker.system.update()
 }
 
 function sameStyle(a: Style, b: Style): boolean {
@@ -149,6 +162,10 @@ export class NoteRenderer {
     )
   }
 
+  resetFrameClock(): void {
+    this.lastFrameMs = 0
+  }
+
   /** Container for future effect layers. Null until init resolves. */
   get effects(): Container | null {
     return this.effectsLayer
@@ -173,7 +190,7 @@ export class NoteRenderer {
       app.destroy({ removeView: true }, { children: true })
       return
     }
-    app.ticker.stop()
+    stopPixiRequestingFrames(app)
 
     const content = new Container()
     const notes = new Graphics()
@@ -404,6 +421,7 @@ export class NoteRenderer {
     this.content.position.set(p.offsetX, p.offsetY)
 
     this.stepEffects(p)
+    runPixiScheduledWork()
     app.render()
   }
 

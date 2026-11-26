@@ -24,6 +24,13 @@ import {
 } from "./playback/channelDiagnostics"
 import { predictedNoteRect, toReadFrame } from "./playback/debugNotes"
 import { composeFrame, frameTransform, padRect, pitchBounds } from "./playback/frame"
+import {
+  drawsLive,
+  type FrameDemand,
+  FrameLoop,
+  wakesOnPlayback,
+  wantsNextFrame,
+} from "./playback/frameLoop"
 import { ScrollLatencyProbe } from "./playback/latencyProbe"
 import {
   anchoredRect,
@@ -193,9 +200,16 @@ function Overlay() {
       glow = { ...glowParams(p.glow), enabled: p.effects && p.glow.enabled }
       trail = { ...trailParams(p.trail), enabled: p.effects && p.trail.enabled }
       pitch = p.pitch
+      loop.wake()
     }
     window.preferences.get().then(adopt)
     const unsubscribe = window.preferences.onChange(adopt)
+
+    let shown = window.overlay.isShown()
+    const unsubscribeShown = window.overlay.onShownChange((next) => {
+      shown = next
+      loop.wake()
+    })
 
     const transport = new Transport()
     const latencyProbe = new ScrollLatencyProbe({ log: (line) => window.debug.latency(line) })
@@ -207,7 +221,7 @@ function Overlay() {
     })
     canvasManager.start()
 
-    let raf = 0
+    let canvasBlank = true
     let uploaded: PianoRoll | null = null
     // The read whose coordinate frame the live particles are currently in.
     let based: PianoRoll | null = null
@@ -269,11 +283,11 @@ function Overlay() {
         diagnosticsGraphElement.classList.remove("hidden")
       }
     }
-    const draw = () => {
-      raf = requestAnimationFrame(draw)
+    const drawFrameAndWantAnother = (): boolean => {
       frameId += 1
       const nowMs = window.bridge.monotonicNow()
-      latencyProbe.setEnabled(latencyProbeEnabled(debug))
+      const probing = latencyProbeEnabled(debug)
+      latencyProbe.setEnabled(probing)
       const nativeCanvas = canvasManager.current()
       transport.poll(nowMs, nativeCanvas)
       const currentRead = transport.pianoRoll
@@ -285,7 +299,15 @@ function Overlay() {
       const w = window.innerWidth
       const h = window.innerHeight
 
-      const vp = debug || transport.playing || renderer.effectsActive ? latestViewport : null
+      const demand: FrameDemand = {
+        shown,
+        debug,
+        probing,
+        playing: transport.playing,
+        effectsEnabled: particles.enabled || glow.enabled || trail.enabled,
+        effectsActive: renderer.effectsActive,
+      }
+      const vp = drawsLive(demand) ? latestViewport : null
 
       if (!vp || !read || vp.refY === undefined) {
         updateDiagnostics(nowMs, null, null)
@@ -293,30 +315,34 @@ function Overlay() {
         if (uploaded) {
           renderer.clear()
           uploaded = null
+          canvasBlank = false
         }
-        renderer.draw({
-          width: w,
-          height: h,
-          dpr,
-          offsetX: 0,
-          offsetY: 0,
-          scaleX: 1,
-          clip: vp ? viewportClip(vp) : { x: 0, y: 0, w: 0, h: 0 },
-          fill: FILL,
-          stroke: STROKE,
-          border: BORDER_PX,
-          reaches: EMPTY_REACHES,
-          reachFill: REACH_FILL,
-          reachStroke: REACH_STROKE,
-          playing: null,
-          playingFill: PLAYING_FILL,
-          emit: null,
-          trailEmit: null,
-          particles,
-          noteStarted: false,
-          glow,
-          trail,
-        })
+        if (!canvasBlank) {
+          renderer.draw({
+            width: w,
+            height: h,
+            dpr,
+            offsetX: 0,
+            offsetY: 0,
+            scaleX: 1,
+            clip: vp ? viewportClip(vp) : { x: 0, y: 0, w: 0, h: 0 },
+            fill: FILL,
+            stroke: STROKE,
+            border: BORDER_PX,
+            reaches: EMPTY_REACHES,
+            reachFill: REACH_FILL,
+            reachStroke: REACH_STROKE,
+            playing: null,
+            playingFill: PLAYING_FILL,
+            emit: null,
+            trailEmit: null,
+            particles,
+            noteStarted: false,
+            glow,
+            trail,
+          })
+          canvasBlank = !renderer.effectsActive
+        }
         latencyProbe.sample({
           atMs: nowMs,
           frame: frameId,
@@ -325,8 +351,20 @@ function Overlay() {
           drawStartedAtMs: nowMs,
           drawEndedAtMs: window.bridge.monotonicNow(),
         })
-        return
+        if (!canvasBlank) {
+          return true
+        }
+        renderer.resetFrameClock()
+        soundingOnset = null
+        if (wantsNextFrame(demand)) {
+          return true
+        }
+        if (wakesOnPlayback(demand)) {
+          window.bridge.wakeOnPlayback(loop.wake)
+        }
+        return false
       }
+      canvasBlank = false
 
       if (based && based !== read) {
         renderer.rebaseEffects(based, read)
@@ -514,14 +552,17 @@ function Overlay() {
         drawStartedAtMs: nowMs,
         drawEndedAtMs: window.bridge.monotonicNow(),
       })
+      return true
     }
-    raf = requestAnimationFrame(draw)
+    const loop = new FrameLoop(drawFrameAndWantAnother)
+    loop.wake()
 
     return () => {
       window.bridge.setDiagnosticsEnabled(false)
       canvasManager.stop()
-      cancelAnimationFrame(raf)
+      loop.dispose()
       unsubscribe()
+      unsubscribeShown()
       renderer.dispose()
     }
   }, [t])

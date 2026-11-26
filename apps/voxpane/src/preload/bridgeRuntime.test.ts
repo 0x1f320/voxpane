@@ -23,6 +23,7 @@ const NEWER_NOTES_BYTES = Uint8Array.of(7)
 const MISMATCHED_NOTES_BYTES = Uint8Array.of(8)
 const SESSION_BYTES = Uint8Array.of(9)
 const SECOND_SESSION_BYTES = Uint8Array.of(10)
+const STOPPED_STATE_BYTES = Uint8Array.of(11)
 const INVALID_BYTES = Uint8Array.of(255)
 const STATE_RECORD: BridgeStateRecord = {
   seq: 9,
@@ -74,6 +75,7 @@ const STATE_RECORDS = new Map<number, BridgeStateRecord>([
   [1, STATE_RECORD],
   [2, { ...STATE_RECORD, seq: 10, notesSeq: 0 }],
   [3, { ...STATE_RECORD, seq: 11, notesSeq: 4, scrollSeq: 6, rev: "next" }],
+  [11, { ...STATE_RECORD, seq: 12, status: "stopped" }],
 ])
 const SCROLL_RECORDS = new Map<number, BridgeScrollRecord>([
   [4, SCROLL],
@@ -400,5 +402,66 @@ describe("BridgeRuntime", () => {
       px: { ...MAPPING, viewLeft: 10, viewRight: 110 },
     })
     expect(bridge.readSchedule(4)).toEqual({ notesSeq: 4, rev: "next", notes: [] })
+  })
+
+  it("wakes a playback waiter once, on the next composed state that is not stopped", () => {
+    const bridge = runtime()
+    let wakes = 0
+    bridge.awaitPlayback(() => {
+      wakes += 1
+    })
+
+    bridge.acceptScroll(SCROLL_BYTES)
+    bridge.acceptSchedule(NOTES_BYTES)
+    bridge.acceptState(STOPPED_STATE_BYTES)
+    expect(wakes).toBe(0)
+
+    bridge.acceptState(STATE_BYTES)
+    expect(wakes).toBe(1)
+
+    bridge.acceptState(STATE_BYTES)
+    expect(wakes).toBe(1)
+  })
+
+  it("does not wake a playback waiter for the playing state it already holds", () => {
+    const bridge = runtime()
+    publish(bridge, ["state", "scroll", "notes"])
+    let wakes = 0
+
+    bridge.awaitPlayback(() => {
+      wakes += 1
+    })
+    expect(wakes).toBe(0)
+
+    bridge.acceptState(STATE_BYTES)
+    expect(wakes).toBe(1)
+  })
+
+  it("holds a playback waiter back until the playing state composes", () => {
+    const bridge = runtime()
+    let wakes = 0
+    bridge.awaitPlayback(() => {
+      wakes += 1
+    })
+
+    bridge.acceptState(STATE_BYTES)
+    bridge.acceptSchedule(NOTES_BYTES)
+    expect(wakes).toBe(0)
+
+    bridge.acceptScroll(SCROLL_BYTES)
+    expect(wakes).toBe(1)
+  })
+
+  it("keeps a playback waiter armed across a new script session", () => {
+    const bridge = runtime()
+    let wakes = 0
+    bridge.awaitPlayback(() => {
+      wakes += 1
+    })
+
+    bridge.acceptSession(SESSION_BYTES)
+    publish(bridge, ["state", "scroll", "notes"])
+
+    expect(wakes).toBe(1)
   })
 })

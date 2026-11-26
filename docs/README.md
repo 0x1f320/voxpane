@@ -30,6 +30,8 @@ tests; this tree covers behaviour.
 | --- | --- | --- |
 | No overlay at all; SynthV is open | window tracking, or the permissions gate | [debugging](debugging.md#app-and-overlay), [overlay](overlay.md#following-the-frame) |
 | Overlay is there, nothing ever draws | the script is not publishing | [debugging](debugging.md#script-side-panel), [bridge](bridge.md#session-gate-and-recovery) |
+| Effects start late, or only after a setting is touched | the frame loop was not woken | [overlay](overlay.md#frames-on-demand) |
+| Idle CPU as high as during playback | the frame loop never rests | [overlay](overlay.md#frames-on-demand) |
 | Overlay lags behind scrolling | the hot path, or throttling | [overlay](overlay.md#the-hot-path) |
 | Overlay chases the window during a drag | bounds reconciliation | [overlay](overlay.md#native-placement-with-debounced-reconciliation) |
 | Overlay floats over an unrelated app | visibility gating | [overlay](overlay.md#visibility-gating) |
@@ -70,6 +72,7 @@ technique has **one home**; everything else links to it.
 | Window ownership instead of topmost | [overlay](overlay.md#staying-above-synthv) | the overlay on Windows |
 | Visibility and occlusion gating | [overlay](overlay.md#visibility-gating) | overlay, toolbar, tray status |
 | No IPC in the per-frame path | [overlay](overlay.md#the-hot-path) | bridge reads, geometry reads |
+| Frames on demand | [overlay](overlay.md#frames-on-demand) | the overlay frame loop, Pixi's tickers, the window-shown signal |
 | Sampling paired values together | [overlay](overlay.md#sampling-paired-values-together) | the transport, the frame transform |
 | Docking with hysteresis | [overlay](overlay.md#docking-with-hysteresis) | the toolbar |
 | Two summed envelopes | [effects](effects.md#two-summed-envelopes) | glow |

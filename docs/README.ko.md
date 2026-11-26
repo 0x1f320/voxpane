@@ -33,6 +33,8 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | --- | --- | --- |
 | SynthV는 떠 있는데 overlay가 아예 없음 | window tracking, 또는 permissions gate | [debugging](debugging.ko.md#app-and-overlay), [overlay](overlay.ko.md#following-the-frame) |
 | overlay는 있는데 아무것도 안 그려짐 | script가 publish하지 않음 | [debugging](debugging.ko.md#script-side-panel), [bridge](bridge.ko.md#session-gate-and-recovery) |
+| effect가 늦게 시작하거나, 설정을 건드린 뒤에야 나옴 | frame loop를 깨우지 못함 | [overlay](overlay.ko.md#frames-on-demand) |
+| 대기 중 CPU가 playback 때만큼 높음 | frame loop가 쉬지 못함 | [overlay](overlay.ko.md#frames-on-demand) |
 | 스크롤할 때 overlay가 밀림 | hot path, 또는 throttling | [overlay](overlay.ko.md#the-hot-path) |
 | 드래그 중 overlay가 창을 쫓아감 | bounds reconciliation | [overlay](overlay.ko.md#native-placement-with-debounced-reconciliation) |
 | overlay가 무관한 앱 위에 뜸 | visibility gating | [overlay](overlay.ko.md#visibility-gating) |
@@ -73,6 +75,7 @@ overlay까지 어떻게 오는지, 각 부분이 어떤 technique 위에 서 있
 | Window ownership instead of topmost | [overlay](overlay.ko.md#staying-above-synthv) | Windows의 overlay |
 | Visibility and occlusion gating | [overlay](overlay.ko.md#visibility-gating) | overlay, toolbar, tray 상태 |
 | No IPC in the per-frame path | [overlay](overlay.ko.md#the-hot-path) | bridge 읽기, geometry 읽기 |
+| Frames on demand | [overlay](overlay.ko.md#frames-on-demand) | overlay frame loop, Pixi의 ticker, 창 표시 신호 |
 | Sampling paired values together | [overlay](overlay.ko.md#sampling-paired-values-together) | transport, frame transform |
 | Docking with hysteresis | [overlay](overlay.ko.md#docking-with-hysteresis) | toolbar |
 | Two summed envelopes | [effects](effects.ko.md#two-summed-envelopes) | glow |

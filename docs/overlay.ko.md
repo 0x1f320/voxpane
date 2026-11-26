@@ -34,6 +34,9 @@ mouse-move 이벤트를 계속 오게 해서 hover 상태 같은 것이 여전�
   [hot path](#the-hot-path) 참조.
 - **`backgroundThrottling: false`.** overlay는 절대 포커스를 받지 않고, Electron은 포커스
   없는 창의 rAF와 timer를 스로틀한다. 이게 없으면 스크롤할 때 overlay가 눈에 띄게 밀린다.
+  그 대가로 Chromium은 숨겨진 창이나 한 번도 보인 적 없는 창의 rAF도 더는 멈추지 않는다.
+  그래서 renderer는 자기 frame loop만으로는 누가 자기를 볼 수 있는지 알 수 없다. main이 알려
+  준다 — [frames on demand](#frames-on-demand) 참조.
 
 창은 숨긴 채로 만들고 helper가 frame을 보고한 뒤에야 보여준다 — 대상을 찾기 전에는 보여줄
 것이 없다.
@@ -166,6 +169,10 @@ $p_0$와 $c_0$는 드래그가 시작될 때의 창 frame과 커서 위치다.
 Screen Recording은 의도적으로 요청하지 *않는다*: 이 판정은 bounds·pid·layer를 읽는데, 그 권한이
 관장하는 것은 창 제목과 픽셀 캡처다.
 
+main은 show와 hide를 전부 overlay의 renderer에 전달한다(`OverlayVisibility`, `overlay:shown`
+channel). renderer가 이를 알 다른 방법이 없기 때문이다 —
+[frames on demand](#frames-on-demand) 참조.
+
 **깨지면:** SynthV를 덮고 있는 무관한 앱 위에 overlay가 떠 있음(macOS 점유) · 최소화했는데
 overlay가 살아남음.
 
@@ -179,6 +186,7 @@ overlay가 살아남음.
 | 최신 bridge `state` 읽기 | preload memory cache | file I/O와 할당 없음 |
 | canvas snapshot 갱신 | macOS: main IPC; Windows: preload native read | 약 250 ms마다, rAF call stack 밖 |
 | 판단하고 그리기 | renderer | 단순 스크롤이면 transform 한 번 |
+| 쉬는 frame loop 깨우기 | preload callback; main의 `overlay:shown` push | transition마다 한 번, 프레임마다는 절대 아님 |
 
 bridge state와 draw 판단은 `contextBridge`를 통해 **overlay renderer의 프로세스 안에** 남는다.
 저주기 canvas refresh는 macOS에서 Accessibility의 TCC subject가 permissions gate와 같아지도록
@@ -195,6 +203,72 @@ base note set은 cached schedule generation이나 canvas가 바뀔 때만 다시
 zoom update는 같은 set을 유지하고 live bridge-derived viewport로 매핑한다. 별도 note pump는 없다.
 
 **깨지면:** 스크롤 지연(뭔가 IPC 경로로 옮겨갔다) · GC 톱니(state 버퍼를 다시 할당하고 있다).
+
+### Frames on demand
+
+frame loop는 그릴 것이 있는 동안에만 돈다. 없으면 지운 frame을 하나 그리고
+`requestAnimationFrame` 호출을 멈춘다. 다시 시작시키는 것은 event이고, polling하는 것은 없다.
+
+**draw를 건너뛰지 않고 멈추는 이유.** frame의 비용은 frame이 만들어진다는 사실 자체 — renderer를
+깨우고, canvas를 제출하고, SynthV 크기의 투명한 창을 composite하는 것 — 에서 나오지, 그 안에
+무엇을 그리느냐에서 나오지 않는다. **관측값**(M2 Max, 60 Hz 6K 디스플레이에 창을 최대화, renderer와
+GPU process의 CPU를 코어 하나 대비 %로): SynthV가 stopped인 동안 빈 scene을 매 frame 다시 그리는 데
+약 14가 들었고, 모든 effect를 켠 playback은 약 21이었다. frame을 계속 요청하면서 아무것도 그리지 않는
+loop도 멈춘 loop보다 약 1을 더 썼다. 그러니 레버는 덜 그리는 것이 아니다. 요청하지 않는 것이다.
+
+**무엇이 "그릴 것"인가**는 `playback/frameLoop.ts`에서, 방금 그린 frame에 대한 여섯 가지 사실로
+정한다:
+
+| frame이 필요한 동안 | 이유 |
+| --- | --- |
+| 창이 보이고, playback이 돌고, effect가 하나라도 켜져 있다 | effect에 먹이를 주고 있다 |
+| 앞서 배출된 것이 아직 비행 중이다 | 끝까지 가야 한다 — 창이 보이든 말든. 아래 참조 |
+| 창이 보이고 debug mode가 켜져 있다 | debug rect는 scroll과 zoom을 따라가는데, 그건 stopped일 때 일어난다 |
+| 창이 보이고 latency probe가 켜져 있다 | 매 frame sample한다 |
+
+playback 하나만으로는 이 목록에 들지 않는다: effect를 전부 끄면 transport가 아무리 돌아도
+그릴 것이 없다.
+
+**무엇이 깨우는가.** 이 사실들은 세 가지 event 중 하나를 통해서만 참이 될 수 있고, 각 event는
+`FrameLoop.wake`를 부른다. 이미 도는 loop에는 아무 일도 하지 않는 호출이다:
+
+- **playback이 시작된다.** preload는 이미 모든 state record를 받고 있으므로 loop가 preload에
+  부탁한다: loop가 멈출 때 `BridgeRuntime.awaitPlayback`을 arm하고, runtime은 다음으로 stopped가
+  아닌 state를 compose하는 순간 callback을 부른다. 그 뒤 첫 frame이 같은 state를 읽으므로,
+  playback이 시작될 때 울리는 note는 그 frame에서 strike된다. 이 wake는 one-shot이고, playback이
+  시작되면 실제로 그릴 것이 생기는 경우에만 arm한다 — 숨겨진 창 뒤에서 playback이 이미 도는
+  동안 arm하면 record마다 발화한다. 이미 들고 있는 state에 대해서는 절대 발화하지 않는다:
+  playback 도중 조용해진 script는 cache에 playing state를 무기한 남겨 둔다.
+- **preference가 바뀐다.** debug mode와 모든 effect 스위치는 `adopt`를 통해 들어온다.
+- **창이 보이거나 숨겨진다.** main은 창을 show/hide할 때마다 `overlay:shown`을 push하고, 같은
+  channel로 load 시점에 한 번 응답한다. push가 그 응답을 덮어쓰고 그 반대는 없다 — 둘은 따로
+  이동한다. 초기 상태는 *숨김*이다. 그래서 만들어지고 한 번도 보인 적 없는 overlay는 아무것도
+  그리지 않는다: SynthV 없이 앱만 떠 있는 상태가 그것이다.
+
+latency probe는 뒤에 event가 없는 유일한 입력이다. 그 스위치는 frame 안에서 읽는 `localStorage`
+flag라서, 쉬고 있는 overlay에서 켜면 다음 wake 때 효력이 생긴다.
+
+**숨김은 창이 아니라 main이 하는 말이다.** `OverlayVisibility`는 `isVisible()`을 되읽지 않고
+main의 의도를 추적한다. Windows에서는 Electron이 요청받지 않아도 system이 owned window를 owner와
+함께 숨기고 되돌리기 때문이다.
+
+**비행 중인 것은 이 모든 것보다 오래 산다.** playback을 멈추거나, 창을 숨기거나, effect를 끄면
+effect에 *먹이 주기*가 멈춘다. loop는 남은 것이 없을 때까지 계속 step하고, 그런 다음에야 지우고
+멈춘다. 숨겨진 창 뒤에서는 위치를 잡지 않은 채 step한다. 창이 몇 초 뒤에 돌아왔을 때 spark가
+공중에서 이어지지 않게 하기 위해서다.
+
+**loop는 새로 시작한 것으로 돌아온다.** 아무것도 그리지 않은 frame은 effect의 frame clock을
+새로 시작시키므로, 쉰 뒤 첫 frame은 길이 0짜리 step이다 —
+[effects.ko.md](effects.ko.md#frame-rate-independence).
+
+**Pixi도 요청하면 안 된다.** Pixi 자신의 ticker가 frame을 계속 요청하면, 아무것도 잘못돼 보이지
+않는 채로 이 모든 것이 무효가 된다 — [effects.ko.md](effects.ko.md#the-scene-graph).
+
+**깨지면:** effect가 playback 시작을 놓치거나, 설정을 건드리기 전까지 overlay가 아무것도 그리지
+않음(wake를 놓침 — `FrameDemand`에 새 입력이 생겼는데 그 뒤에 event가 없다) · 대기 중 CPU가
+playback 때만큼 높음(무언가 아직 frame을 요청한다: Pixi ticker, 또는 조건이 이미 참인데 arm된
+wake) · 마지막 spark가 화면에 얼어붙거나 잘려 나감(지우는 frame 전에, 또는 effect가 다 끝나기
+전에 멈춤) · 창이 다시 나타날 때 낡은 spark가 비행을 마저 끝냄(숨겨진 동안 step하지 않고 얼려 둠).
 
 ### Sampling paired values together
 
@@ -249,5 +323,7 @@ toolbar는 대상 옆 `GAP` 8 px에 도킹하고 **현재 있는 쪽에 머문�
 | Electron의 bounds는 이동이 잦아든 뒤에만 맞춘다 | 드래그 중 눈에 띄는 추격, 또는 보여질 때 튐 |
 | `backgroundThrottling`은 꺼진 채로 둔다 | 스크롤할 때 overlay가 밀림 |
 | 프레임 단위로는 아무것도 main으로 넘어가지 않는다 | 스크롤 지연이 돌아옴 |
+| 그릴 것이 없으면 frame loop는 쉰다 | 대기 비용이 playback만큼 든다 |
+| loop에 그릴 것을 줄 수 있는 모든 것이 loop를 깨운다 | effect가 playback 시작을 놓치거나 영영 돌아오지 않음 |
 | 짝지어진 값은 같은 호흡에 샘플링한다 | 그림이 창에 대해 미끄러짐 |
 | 대상을 보여줄 수 없으면 overlay를 숨긴다 | effect가 무관한 창 위에 뜸 |

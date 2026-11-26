@@ -236,10 +236,16 @@ n = \lfloor \text{debt} \rfloor
 
 envelope도 프레임당 곱셈이 아니라 $e^{-\Delta t/\tau}$를 쓰는데, 같은 이유다.
 
-$\Delta t$는 `MAX_STEP_SEC` 0.1초로 clamp된다. 그보다 긴 간격은 창이 숨겨졌거나 loop가 멎었다는
-뜻이고, 따라잡으면 한꺼번에 터지므로 새로 시작한 것으로 다룬다.
+$\Delta t$는 `MAX_STEP_SEC` 0.1초로 clamp된다. 그보다 긴 간격은 loop가 멎었다는 뜻이고,
+따라잡으면 한꺼번에 터지므로 step을 잘라 낸다.
 
-**깨지면:** 120 Hz 디스플레이에서 spark가 두 배 · 창을 다시 보일 때 particle이 왈칵 터짐 ·
+일부러 멈춘 loop는 다른 경우이고, 일상적인 경우다: overlay의 frame loop는
+[그릴 것이 없을 때마다 쉬므로](overlay.ko.md#frames-on-demand) playback은 매번 공백 뒤에 시작한다.
+그 loop는 clock을 아예 새로 시작한다(`resetFrameClock`). 그래서 wake 뒤 첫 frame은 길이 0짜리 step이
+된다 — playback을 여는 strike가 온전한 burst로 그려지고, 0.1초 치 spark가 한 덩어리로 쏟아지지 않는다.
+
+**깨지면:** 120 Hz 디스플레이에서 spark가 두 배 · 창을 다시 보일 때 particle이 왈칵 터짐, 또는
+playback 시작에서 첫 strike가 약하고 spark가 뭉쳐 나옴(쉰 뒤에 clock을 새로 시작하지 않음) ·
 빠른 기계에서 effect가 빨라짐.
 
 ### Procedural textures, built once
@@ -301,9 +307,15 @@ flowchart TD
   건반, 툴바 위에는 아무것도 그려지면 안 된다.
 - **레이어 순서는 뒤에서 앞으로다:** trail은 빛이 이미 지나간 자리이므로, glow와 그다음 spark가
   그 앞에 있는 것으로 읽힌다.
-- **Pixi의 ticker는 멈춰 있다**(`autoStart: false`, `sharedTicker: false`). 렌더링은 앱 자신의
-  rAF가 몰고, 그 frame에 쓸 live viewport도 앱이 만든다 — Pixi가 뒤에서 몰래 렌더하면 낡은
-  transform으로 그리게 된다.
+- **Pixi는 절대 frame을 요청하지 않는다.** 렌더링은 앱 자신의 rAF가 몰고, 그 frame에 쓸 live
+  viewport도 앱이 만든다 — Pixi가 뒤에서 몰래 렌더하면 낡은 transform으로 그리게 된다 — 그래서
+  application의 ticker는 멈춰 있다(`autoStart: false`, `sharedTicker: false`). ticker는 그것 하나가
+  아니다: Pixi 8은 event system과 scheduler를 위해 process 전체에 하나뿐인 `Ticker.system`도 스스로
+  시작하고, 이 ticker는 렌더되는 것이 있든 없든 매 refresh마다 animation frame을 요청한다.
+  `NoteRenderer`는 이것도 멈춘다. event system의 DOM target은 떼어 낸다. 여기에는 pointer 입력을 받는
+  코드가 없는데, 붙여 두면 click-through 창 위에서 마우스가 움직일 때마다 scene을 hit-test하기
+  때문이다. scheduler는 Pixi의 resource garbage collection 주기만 맞추고 그 수거는 렌더 뒤에
+  일어나므로, clock 없이 내버려 두지 않고 `draw`에서 전진시킨다.
 
 `NoteRenderer`는 React에게 받는 대신 자기 `<canvas>`를 소유한다: WebGL renderer를 무너뜨리면
 context가 영영 사라지므로, HMR 리로드를 넘어 살아남은 canvas는 죽은 채로 돌아와 조용히 아무것도
@@ -342,6 +354,7 @@ file(패키징)에서 제공되므로 모든 `asset://` 읽기가 cross-origin�
 | 재생이 멈춰도 effect는 계속 진행된다 | 마지막 spark와 glow release가 공중에서 잘림 |
 | note read가 교체되면 살아 있는 effect 위치를 rebase한다 | 스크롤 중 read가 들어올 때 전부 튐 |
 | `dt`는 clamp하고 모든 rate는 적분한다 | 숨겼다 켠 창이 왈칵 터짐. 120 Hz가 출력을 두 배로 만듦 |
+| Pixi 자신의 ticker는 멈춘 채로 두고, scheduler는 `draw`에서 전진시킨다 | overlay가 [쉬는 동안](overlay.ko.md#frames-on-demand)에도 frame을 계속 요청함. 또는 Pixi의 garbage collection이 영영 돌지 않음 |
 | 포화되면 새 spark를 버리지, 살아 있는 것을 재활용하지 않는다 | particle이 순간이동함 |
 | trail 구간은 가로로만 끊고, 세로로는 끊지 않는다 | roll을 가로지르는 줄무늬, 또는 안 그려지는 vibrato |
 | preferences는 asset *이름*만 나르고, 경로나 바이트는 나르지 않는다 | 기계 간에 공유된 preset이 asset 디렉터리 밖에 쓴다 |

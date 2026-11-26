@@ -24,6 +24,7 @@ import {
   toDipCanvasSnapshot,
   toDipState,
 } from "../shared/native"
+import { OVERLAY_SHOWN_CHANNEL } from "../shared/overlayShownIpc"
 import type { PermissionKey, PermissionsStatus } from "../shared/permissions"
 import { expectedCanvasSize } from "../shared/pianoRollGeometry"
 import type { Preferences, PreferencesPatch } from "../shared/preferences"
@@ -182,9 +183,43 @@ function nativeCanvasAsync(): Promise<CanvasSnapshot | null> {
   return isWindows ? readWindowsCanvas() : ipcRenderer.invoke("overlay:getCanvas")
 }
 
+// Whether main is showing the overlay window. A push is authoritative and the
+// initial reply only fills in until one arrives: the two travel separately, so a
+// reply read before a change could land after the push that announced it.
+let overlayShown = false
+let overlayShownPushed = false
+const overlayShownListeners = new Set<(shown: boolean) => void>()
+
+function adoptOverlayShown(shown: boolean): void {
+  if (shown === overlayShown) {
+    return
+  }
+  overlayShown = shown
+  for (const listener of overlayShownListeners) {
+    listener(shown)
+  }
+}
+
+ipcRenderer.on(OVERLAY_SHOWN_CHANNEL, (_event, shown: boolean) => {
+  overlayShownPushed = true
+  adoptOverlayShown(shown)
+})
+ipcRenderer.invoke(OVERLAY_SHOWN_CHANNEL).then((shown: boolean) => {
+  if (!overlayShownPushed) {
+    adoptOverlayShown(shown)
+  }
+})
+
 contextBridge.exposeInMainWorld("overlay", {
   getCanvasAsync: (): Promise<CanvasSnapshot | null> =>
     nativeCanvasAsync().then((snapshot) => snapshot && toDipCanvasSnapshot(dip, snapshot)),
+  isShown: (): boolean => overlayShown,
+  onShownChange: (callback: (shown: boolean) => void): (() => void) => {
+    overlayShownListeners.add(callback)
+    return () => {
+      overlayShownListeners.delete(callback)
+    }
+  },
 })
 
 // A Node-enabled Web Worker owns the bridge endpoints and transfers complete
@@ -197,6 +232,7 @@ contextBridge.exposeInMainWorld("bridge", {
   },
   readSchedule: (notesSeq: number): BridgeSchedule | null => cachedBridge().readSchedule(notesSeq),
   readDiagnostics: () => cachedBridge().readDiagnostics(),
+  wakeOnPlayback: (listener: () => void): void => cachedBridge().awaitPlayback(listener),
   setDiagnosticsEnabled: (enabled: boolean): void => {
     cachedBridge()
     bridgeWorker?.postMessage({ type: "diagnostics", enabled })

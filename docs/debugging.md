@@ -121,6 +121,12 @@ The timing graph compares accepted state and viewport application against drawin
 means no accepted sample, not a zero-duration read. Renderer latency reports appear in
 overlay DevTools; development forwards them to the main terminal.
 
+Debug mode changes what it observes: it keeps the overlay's frame loop running for as long as
+the window is shown. Without it, an overlay with nothing to draw produces **no frames at
+all** ([overlay.md](overlay.md#frames-on-demand)) — so an overlay that shows no frames in
+the DevTools performance panel while SynthV is stopped is resting, not hung, and a loop that
+never rests shows up there as a steady stream of empty frames with debug mode off.
+
 ## Deployment and rescan
 
 ```sh
@@ -157,6 +163,8 @@ cd packages/windows-helper && cargo check --target x86_64-pc-windows-msvc
 | SynthV stops after an app crash | verify the session guardian existed before the kill and that `pipe-session` becomes unavailable |
 | Overlay never draws | tray attachment, side-panel connection/error, then debug rectangles |
 | A user reports a problem you cannot reproduce | their `main.log` from **Open log folder**: `stick`, `geometry` and `bridge` lines |
+| Effects start late, or only after a setting is touched | a missed wake of the frame loop — [overlay.md](overlay.md#frames-on-demand) |
+| Idle CPU as high as during playback | debug mode off first; then what keeps asking for frames — [overlay.md](overlay.md#frames-on-demand) |
 | Pipe recovers repeatedly | diagnostic recoveries, malformed frames, endpoint failures, and disconnects |
 | New state is ignored | diagnostic invalid, `scrollSeq`, `notesSeq`, or `rev` mismatch observations |
 | Effects drift while scrolling | debug rectangles and the generation candidate matcher in [architecture.md](architecture.md#geometry-path) |
